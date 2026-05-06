@@ -3,9 +3,9 @@ entries:
   kubexa-agent:
   - apiVersion: v2
     appVersion: 0.1.0
-    created: "2026-04-05T18:05:54.206572727Z"
+    created: "2026-05-06T20:20:22.949238607Z"
     description: Kubexa Kubernetes monitoring agent
-    digest: 7e58e2f1262cdbe6ee630a296c39feee3a7d7f8ec6457a513e5ced600749b5eb
+    digest: 0cd3739f16d5d3be3caec32b3471ed4bc59835362682ac0b9b6a776bdf99c72f
     home: https://github.com/kubexa/kubexa-agent
     keywords:
     - kubernetes
@@ -21,4 +21,4 @@ entries:
     urls:
     - https://kubexa.github.io/helm-charts/kubexa-agent-0.1.0.tgz
     version: 0.1.0
-generated: "2026-04-05T18:05:54.205965806Z"
+generated: "2026-05-06T20:20:22.948724661Z"
