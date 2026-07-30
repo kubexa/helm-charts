@@ -2,8 +2,30 @@ apiVersion: v1
 entries:
   kubexa-agent:
   - apiVersion: v2
+    appVersion: 0.2.1
+    created: "2026-07-30T22:35:50.432485218Z"
+    description: Kubexa agent — collects Kubernetes logs, state, and metrics and streams
+      them to the Kubexa gateway.
+    digest: 0de6ea4c17e1b2dad19caea17ad622171f98517c3cd36690e5aad33478cdc9c2
+    home: https://github.com/kubexa/kubexa-agent
+    keywords:
+    - kubexa
+    - observability
+    - kubernetes
+    - monitoring
+    maintainers:
+    - name: Kubexa
+      url: https://github.com/kubexa
+    name: kubexa-agent
+    sources:
+    - https://github.com/kubexa/kubexa-agent
+    type: application
+    urls:
+    - https://kubexa.github.io/helm-charts/kubexa-agent-0.3.1.tgz
+    version: 0.3.1
+  - apiVersion: v2
     appVersion: 0.2.0
-    created: "2026-07-30T21:54:21.231919983Z"
+    created: "2026-07-30T22:35:50.431812326Z"
     description: Kubexa agent — collects Kubernetes logs, state, and metrics and streams
       them to the Kubexa gateway.
     digest: 85864c14b998216e8f640658181f74e7a1f31046d89ab7edc635ad3f7c2f81ec
@@ -25,7 +47,7 @@ entries:
     version: 0.3.0
   - apiVersion: v2
     appVersion: 0.1.0
-    created: "2026-07-30T21:54:21.23087228Z"
+    created: "2026-07-30T22:35:50.431081268Z"
     description: Kubexa agent — collects Kubernetes logs, state, and metrics and streams
       them to the Kubexa gateway.
     digest: 830899ebd88171308dbd6e688691780009fcab1135c11b1769a9bd1e11d7918e
@@ -47,7 +69,7 @@ entries:
     version: 0.2.0
   - apiVersion: v2
     appVersion: 0.1.0
-    created: "2026-07-30T21:54:21.230118077Z"
+    created: "2026-07-30T22:35:50.430381055Z"
     description: Kubexa Kubernetes monitoring agent
     digest: 0cd3739f16d5d3be3caec32b3471ed4bc59835362682ac0b9b6a776bdf99c72f
     home: https://github.com/kubexa/kubexa-agent
@@ -65,4 +87,4 @@ entries:
     urls:
     - https://kubexa.github.io/helm-charts/kubexa-agent-0.1.0.tgz
     version: 0.1.0
-generated: "2026-07-30T21:54:21.229540355Z"
+generated: "2026-07-30T22:35:50.429803966Z"
