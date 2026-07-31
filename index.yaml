@@ -2,11 +2,11 @@ apiVersion: v1
 entries:
   kubexa-agent:
   - apiVersion: v2
-    appVersion: 0.3.0
-    created: "2026-07-31T19:19:07.886733523Z"
+    appVersion: 0.4.0
+    created: "2026-07-31T19:57:14.358719196Z"
     description: Kubexa agent — collects Kubernetes logs, state, and metrics and streams
       them to the Kubexa gateway.
-    digest: 0b1018166ad549cb3077083503f60f48301c6ea608d413a58c99d241e793dfe9
+    digest: 4e560ed93cf47423c5e170e697e01cc8a35b17865c3b6b646b12e173501680a5
     home: https://github.com/kubexa/kubexa-agent
     keywords:
     - kubexa
@@ -25,7 +25,7 @@ entries:
     version: 0.4.0
   - apiVersion: v2
     appVersion: 0.2.1
-    created: "2026-07-31T19:19:07.886044351Z"
+    created: "2026-07-31T19:57:14.357964887Z"
     description: Kubexa agent — collects Kubernetes logs, state, and metrics and streams
       them to the Kubexa gateway.
     digest: 0de6ea4c17e1b2dad19caea17ad622171f98517c3cd36690e5aad33478cdc9c2
@@ -47,7 +47,7 @@ entries:
     version: 0.3.1
   - apiVersion: v2
     appVersion: 0.2.0
-    created: "2026-07-31T19:19:07.884892416Z"
+    created: "2026-07-31T19:57:14.357165482Z"
     description: Kubexa agent — collects Kubernetes logs, state, and metrics and streams
       them to the Kubexa gateway.
     digest: 85864c14b998216e8f640658181f74e7a1f31046d89ab7edc635ad3f7c2f81ec
@@ -69,7 +69,7 @@ entries:
     version: 0.3.0
   - apiVersion: v2
     appVersion: 0.1.0
-    created: "2026-07-31T19:19:07.88352273Z"
+    created: "2026-07-31T19:57:14.355367745Z"
     description: Kubexa agent — collects Kubernetes logs, state, and metrics and streams
       them to the Kubexa gateway.
     digest: 830899ebd88171308dbd6e688691780009fcab1135c11b1769a9bd1e11d7918e
@@ -91,7 +91,7 @@ entries:
     version: 0.2.0
   - apiVersion: v2
     appVersion: 0.1.0
-    created: "2026-07-31T19:19:07.882885277Z"
+    created: "2026-07-31T19:57:14.354664655Z"
     description: Kubexa Kubernetes monitoring agent
     digest: 0cd3739f16d5d3be3caec32b3471ed4bc59835362682ac0b9b6a776bdf99c72f
     home: https://github.com/kubexa/kubexa-agent
@@ -109,4 +109,4 @@ entries:
     urls:
     - https://kubexa.github.io/helm-charts/kubexa-agent-0.1.0.tgz
     version: 0.1.0
-generated: "2026-07-31T19:19:07.882405504Z"
+generated: "2026-07-31T19:57:14.354114977Z"
