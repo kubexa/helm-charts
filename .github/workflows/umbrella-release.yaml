@@ -40,13 +40,15 @@ jobs:
         run: |
           helm lint $CHART_PATH \
             --set apiserver.config.upstreams.postgres.app.host=pg.example.com \
-            --set apiserver.config.upstreams.postgres.users.host=pg.example.com
+            --set apiserver.config.upstreams.postgres.users.host=pg.example.com \
+            --set apiserver.config.upstreams.agentserver.controlAddr=agentserver.example.com:50052
 
       - name: Render
         run: |
           helm template kubexa $CHART_PATH \
             --set apiserver.config.upstreams.postgres.app.host=pg.example.com \
             --set apiserver.config.upstreams.postgres.users.host=pg.example.com \
+            --set apiserver.config.upstreams.agentserver.controlAddr=agentserver.example.com:50052 \
             > /dev/null
 
       - name: Get chart name and version
