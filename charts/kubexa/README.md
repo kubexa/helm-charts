@@ -67,23 +67,48 @@ BSD-licensed under the Linux Foundation rather than RSALv2/SSPL, and shipped
 with maintained images that aren't behind a vendor subscription.
 
 To use your own Redis- or Valkey-compatible instance instead of the bundled
-one, set `valkey.enabled: false` and point `apiserver.config.upstreams.redis.addrs`
-at it:
+one, set `valkey.enabled: false`, point `apiserver.config.upstreams.redis.addrs`
+at it, and clear `apiserver.secrets.redisPasswordSecret.name` — its default
+(`kubexa-valkey-auth`) names the Secret `templates/valkey-secret.yaml` would
+have generated for the bundled Valkey, and with `valkey.enabled: false` that
+Secret is never rendered. `kubexa-apiserver`'s `secretKeyRef` for it is
+deliberately non-optional, so leaving the default in place is not a
+degraded-but-working install: `templates/guards.yaml` in this chart `fail`s
+the render for exactly this combination (valkey disabled, apiserver enabled,
+`redisPasswordSecret.name` still naming the Secret this chart would have
+created) rather than letting it reach the cluster as
+`CreateContainerConfigError: secret "kubexa-valkey-auth" not found`.
+
+The complete, working flag list — if your Redis needs no password:
 
 ```bash
 --set valkey.enabled=false \
---set apiserver.config.upstreams.redis.addrs={redis.example.com:6379}
+--set apiserver.config.upstreams.redis.addrs={redis.example.com:6379} \
+--set apiserver.secrets.redisPasswordSecret.name=""
 ```
 
-If that instance requires a password, clear the bundled-datastore reference
-and supply your own credential one of two ways: either
+If it does, supply the credential one of two ways: either
 `apiserver.secrets.redisPassword` directly (the value travels into the
-apiserver's own keys Secret), or `apiserver.secrets.redisPasswordSecret.name`
-/`.key` pointing at a Secret you manage yourself (read by reference, the same
-mechanism this chart uses for the bundled Valkey's generated password — see
-"Bundled Redis authentication" below). Leave both alone and the default
-`apiserver.secrets.redisPasswordSecret.name` (`kubexa-valkey-auth`) will point
-at a Secret your external Redis knows nothing about.
+apiserver's own keys Secret):
+
+```bash
+--set valkey.enabled=false \
+--set apiserver.config.upstreams.redis.addrs={redis.example.com:6379} \
+--set apiserver.secrets.redisPasswordSecret.name="" \
+--set apiserver.secrets.redisPassword=<password>
+```
+
+or `apiserver.secrets.redisPasswordSecret.name`/`.key` pointing at a Secret
+you manage yourself (read by reference, the same mechanism this chart uses
+for the bundled Valkey's generated password — see "Bundled Redis
+authentication" below):
+
+```bash
+--set valkey.enabled=false \
+--set apiserver.config.upstreams.redis.addrs={redis.example.com:6379} \
+--set apiserver.secrets.redisPasswordSecret.name=my-redis-auth \
+--set apiserver.secrets.redisPasswordSecret.key=password
+```
 
 ## Bundled Redis authentication
 

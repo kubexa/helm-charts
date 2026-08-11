@@ -1,0 +1,12 @@
+{{- /*
+Combinations that render cleanly and then fail in the cluster in ways nothing
+points at, checked here because they depend on more than one subchart's
+values at once -- no single chart's own schema or templates can see both
+sides.
+*/ -}}
+{{- if and (not .Values.valkey.enabled) .Values.apiserver.enabled }}
+{{- $valkeyAuthSecret := printf "%s-auth" (include "kubexa.valkeyFullname" .) }}
+{{- if eq .Values.apiserver.secrets.redisPasswordSecret.name $valkeyAuthSecret }}
+{{- fail (printf "valkey.enabled=false but apiserver.secrets.redisPasswordSecret.name is still %q, the Secret templates/valkey-secret.yaml would have generated for the bundled Valkey. With valkey disabled that Secret is never rendered, and kubexa-apiserver's KUBEXA_APISERVER_REDIS_PASSWORD secretKeyRef is deliberately non-optional, so the apiserver pod fails with CreateContainerConfigError: secret %q not found. Pick one: (1) set apiserver.secrets.redisPasswordSecret.name to \"\" and set apiserver.secrets.redisPassword to your Redis instance's password (or leave both empty if it needs none), or (2) point apiserver.secrets.redisPasswordSecret.name (and .key) at a Secret you created yourself." $valkeyAuthSecret $valkeyAuthSecret) }}
+{{- end }}
+{{- end }}

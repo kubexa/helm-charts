@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, and the datastores it needs."
 type: application
-version: 0.1.0
+version: 0.2.0
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -20,6 +20,6 @@ dependencies:
   # with values; it re-templates none of their objects.
   - name: kubexa-apiserver
     alias: apiserver
-    version: "0.1.0"
+    version: "0.2.0"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
