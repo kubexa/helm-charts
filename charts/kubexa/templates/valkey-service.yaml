@@ -1,0 +1,19 @@
+{{- if .Values.valkey.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kubexa.valkeyFullname" . }}
+  labels:
+    {{- include "kubexa.valkeyLabels" . | nindent 4 }}
+spec:
+  # ClusterIP only, deliberately. The cluster already carries one Redis on a
+  # public LoadBalancer; this one stays inside.
+  type: ClusterIP
+  selector:
+    {{- include "kubexa.valkeySelectorLabels" . | nindent 4 }}
+  ports:
+    - name: valkey
+      port: {{ .Values.valkey.port }}
+      targetPort: valkey
+      protocol: TCP
+{{- end }}

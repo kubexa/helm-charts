@@ -1,0 +1,73 @@
+name: Umbrella Chart Release
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "charts/kubexa/**"
+      - ".github/workflows/umbrella-release.yaml"
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      CHART_PATH: charts/kubexa
+      REGISTRY: ghcr.io
+      IMAGE_NAMESPACE: ${{ github.repository_owner }}
+    steps:
+      - uses: actions/checkout@v4
+      # Pinned to the same version kubexa-backend's chart jobs use: two
+      # renderers producing two different manifests from one chart is a class
+      # of bug nobody looks for.
+      - uses: azure/setup-helm@v4
+        with:
+          version: v4.2.2
+
+      - name: Login to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login $REGISTRY \
+            -u ${{ github.actor }} \
+            --password-stdin
+
+      - name: Resolve dependencies
+        run: helm dependency update $CHART_PATH
+
+      - name: Lint
+        run: |
+          helm lint $CHART_PATH \
+            --set apiserver.config.upstreams.postgres.app.host=pg.example.com \
+            --set apiserver.config.upstreams.postgres.users.host=pg.example.com \
+            --set apiserver.config.upstreams.agentserver.controlAddr=agentserver.example.com:50052
+
+      - name: Render
+        run: |
+          helm template kubexa $CHART_PATH \
+            --set apiserver.config.upstreams.postgres.app.host=pg.example.com \
+            --set apiserver.config.upstreams.postgres.users.host=pg.example.com \
+            --set apiserver.config.upstreams.agentserver.controlAddr=agentserver.example.com:50052 \
+            > /dev/null
+
+      - name: Get chart name and version
+        id: chart_version
+        run: |
+          echo "name=$(grep '^name:' $CHART_PATH/Chart.yaml | awk '{print $2}')" >> $GITHUB_OUTPUT
+          echo "version=$(grep '^version:' $CHART_PATH/Chart.yaml | awk '{print $2}')" >> $GITHUB_OUTPUT
+
+      - name: Package chart
+        run: |
+          rm -rf dist && mkdir -p dist
+          helm package $CHART_PATH --destination dist \
+            --version ${{ steps.chart_version.outputs.version }}
+
+      # The exact filename, never a glob: `helm push` reads its second argument
+      # as the remote, so a second .tgz in dist/ silently becomes the
+      # destination instead of the registry.
+      - name: Push to GHCR (OCI)
+        run: |
+          helm push \
+            "dist/${{ steps.chart_version.outputs.name }}-${{ steps.chart_version.outputs.version }}.tgz" \
+            "oci://$REGISTRY/${IMAGE_NAMESPACE}/charts"

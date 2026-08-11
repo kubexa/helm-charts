@@ -1,0 +1,4 @@
+# Resolved Helm dependency tarballs and lockfiles are build output, not
+# source: `helm dependency update` regenerates them from Chart.yaml.
+charts/*/charts/
+charts/*/Chart.lock

@@ -1,0 +1,62 @@
+# The umbrella: one release for the whole platform.
+#
+# Every component can be turned off and pointed at something you already run.
+# The reverse is also supported -- install the component charts directly and
+# skip this one entirely.
+
+global:
+  imagePullSecrets: []
+
+# ─── bundled datastore ──────────────────────────────────────────────────────
+#
+# Valkey, not Redis: protocol-compatible, so the client neither knows nor
+# cares, but BSD-licensed under the Linux Foundation rather than RSALv2/SSPL,
+# and with maintained images that are not behind a vendor subscription.
+#
+# Turn it off and set apiserver.config.upstreams.redis.addrs to your own.
+valkey:
+  enabled: true
+  # A static name, not <release>-valkey: Helm does not template values.yaml, so
+  # a release-derived name could not be written into the apiserver's values
+  # below. The consequence is one umbrella release per namespace; change this
+  # and the addrs entry together if you need two.
+  serviceName: kubexa-valkey
+  image: valkey/valkey:8.1-alpine
+  port: 6379
+  # Generated on first install and preserved across upgrades. Set it to pin.
+  password: ""
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 1Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# ─── components ─────────────────────────────────────────────────────────────
+
+apiserver:
+  enabled: true
+  # Everything under here is the kubexa-apiserver chart's own values surface;
+  # see its README. Only the wiring this chart is responsible for is set.
+  config:
+    upstreams:
+      redis:
+        addrs:
+          - kubexa-valkey:6379
+      postgres:
+        app:
+          host: ""
+        users:
+          host: ""
+  secrets:
+    # By reference, not by value: the bundled Valkey generates its password
+    # into its own Secret at render time, and a generated value cannot travel
+    # through values into a sibling chart.
+    redisPasswordSecret:
+      name: kubexa-valkey-auth
+      key: password
