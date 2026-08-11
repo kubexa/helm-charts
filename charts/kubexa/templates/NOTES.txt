@@ -1,0 +1,18 @@
+kubexa {{ .Chart.Version }} installed as {{ .Release.Name }}.
+
+Components:
+  apiserver: {{ if .Values.apiserver.enabled }}enabled{{ else }}disabled{{ end }}
+  valkey:    {{ if .Values.valkey.enabled }}enabled ({{ include "kubexa.valkeyFullname" . }}:{{ .Values.valkey.port }}){{ else }}disabled{{ end }}
+
+{{- if and .Values.valkey.enabled .Values.apiserver.enabled }}
+{{- if not (has (printf "%s:%v" (include "kubexa.valkeyFullname" .) .Values.valkey.port) .Values.apiserver.config.upstreams.redis.addrs) }}
+
+WARNING: valkey is enabled but the apiserver is not pointed at it. Set
+apiserver.config.upstreams.redis.addrs to ["{{ include "kubexa.valkeyFullname" . }}:{{ .Values.valkey.port }}"],
+or rate limiting, notification fan-out and resource watches stay off while a
+datastore runs beside them doing nothing.
+{{- end }}
+{{- end }}
+
+Next: the agentserver and the telemetry pipeline are not part of this release
+yet. See the chart README.

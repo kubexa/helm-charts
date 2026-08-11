@@ -1,0 +1,92 @@
+{{- if .Values.valkey.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "kubexa.valkeyFullname" . }}
+  labels:
+    {{- include "kubexa.valkeyLabels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "kubexa.valkeyFullname" . }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kubexa.valkeySelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kubexa.valkeySelectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: valkey
+          image: {{ .Values.valkey.image | quote }}
+          command:
+            - valkey-server
+            - --requirepass
+            - $(VALKEY_PASSWORD)
+            - --appendonly
+            - "yes"
+            - --dir
+            - /data
+          env:
+            - name: VALKEY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ printf "%s-auth" (include "kubexa.valkeyFullname" .) }}
+                  key: password
+          ports:
+            - name: valkey
+              containerPort: {{ .Values.valkey.port }}
+              protocol: TCP
+          # tcpSocket, not an exec probe: a valkey-cli probe would need the
+          # password on the command line of every check.
+          livenessProbe:
+            tcpSocket:
+              port: valkey
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            tcpSocket:
+              port: valkey
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          {{- with .Values.valkey.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- if not .Values.valkey.persistence.enabled }}
+      volumes:
+        - name: data
+          emptyDir: {}
+      {{- end }}
+  {{- if .Values.valkey.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        {{- with .Values.valkey.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.valkey.persistence.size | quote }}
+  {{- end }}
+{{- end }}

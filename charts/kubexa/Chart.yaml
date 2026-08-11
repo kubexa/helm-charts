@@ -1,0 +1,25 @@
+apiVersion: v2
+name: kubexa
+description: "Kubexa — the whole platform in one release: API server, and the datastores it needs."
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - kubexa
+  - observability
+  - kubernetes
+home: https://github.com/kubexa
+sources:
+  - https://github.com/kubexa/kubexa-backend
+maintainers:
+  - name: Kubexa
+    url: https://github.com/kubexa
+dependencies:
+  # Component charts are pulled, never vendored. This chart adds the
+  # infrastructure a bundled install needs and wires the components together
+  # with values; it re-templates none of their objects.
+  - name: kubexa-apiserver
+    alias: apiserver
+    version: "0.1.0"
+    repository: oci://ghcr.io/kubexa/charts
+    condition: apiserver.enabled
