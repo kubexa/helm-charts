@@ -53,3 +53,10 @@ apiserver:
           host: ""
         users:
           host: ""
+  secrets:
+    # By reference, not by value: the bundled Valkey generates its password
+    # into its own Secret at render time, and a generated value cannot travel
+    # through values into a sibling chart.
+    redisPasswordSecret:
+      name: kubexa-valkey-auth
+      key: password
