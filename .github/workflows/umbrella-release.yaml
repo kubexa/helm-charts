@@ -27,12 +27,15 @@ jobs:
         with:
           version: v4.2.2
 
-      - name: Login to GHCR
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login $REGISTRY \
-            -u ${{ github.actor }} \
-            --password-stdin
-
+      # Resolved BEFORE logging in, and the order is load-bearing. The
+      # component charts are public, so an anonymous pull works -- but
+      # GITHUB_TOKEN is scoped to THIS repository, and the packages belong to
+      # kubexa-backend. Presenting it does not fall back to public access; the
+      # registry answers 403 for a package anyone else can read:
+      #
+      #   GET .../charts/kubexa-apiserver/manifests/0.2.0: 403 denied
+      #
+      # Logging in later costs nothing: the login is only needed to push.
       - name: Resolve dependencies
         run: helm dependency update $CHART_PATH
 
@@ -62,6 +65,12 @@ jobs:
           rm -rf dist && mkdir -p dist
           helm package $CHART_PATH --destination dist \
             --version ${{ steps.chart_version.outputs.version }}
+
+      - name: Login to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login $REGISTRY \
+            -u ${{ github.actor }} \
+            --password-stdin
 
       # The exact filename, never a glob: `helm push` reads its second argument
       # as the remote, so a second .tgz in dist/ silently becomes the
