@@ -145,12 +145,32 @@ other never receives anything to serve.
 {{- end }}
 
 {{- /*
+The app Ingress enabled without a matching apiserver Ingress on the same
+host. The image's API base is relative (/api/v1), baked into the build, not
+templated per install -- so a separate apiserver hostname, or no apiserver
+Ingress at all, is not merely an unbundled topology, it is UNREACHABLE:
+every /api/v1/* request the SPA makes goes to the app's own nginx, which
+traps it with `location /api { return 404; }` (confirmed against the real
+image). Login fails, every API call 404s, and nothing names the cause. Only
+checked when app.ingress.enabled is true; an app not exposed through this
+chart's Ingress at all is not this guard's concern.
+*/ -}}
+{{- if .Values.app.ingress.enabled }}
+{{- if not (and .Values.apiserver.enabled .Values.apiserver.ingress.enabled) }}
+{{- fail (printf "app.ingress.enabled=true but apiserver.enabled and apiserver.ingress.enabled are not both also true: the image's API base is relative (/api/v1), baked into the build, so with no apiserver Ingress on the same host every /api/v1/* request the SPA makes goes to the app's own nginx, which answers `location /api { return 404; }` -- login fails and every API call 404s, with nothing naming the cause. Set apiserver.enabled=true and apiserver.ingress.enabled=true, with apiserver.ingress.host equal to app.ingress.host (%q)." .Values.app.ingress.host) }}
+{{- else if ne .Values.app.ingress.host .Values.apiserver.ingress.host }}
+{{- fail (printf "app.ingress.host (%q) differs from apiserver.ingress.host (%q): the image's API base is relative (/api/v1), baked into the build, so a separate apiserver hostname is not merely unbundled, it is UNREACHABLE -- every /api/v1/* request the SPA makes goes to the app's own nginx, which answers `location /api { return 404; }`. Set apiserver.ingress.host to the same value as app.ingress.host." .Values.app.ingress.host .Values.apiserver.ingress.host) }}
+{{- end }}
+{{- end }}
+
+{{- /*
 The app and the apiserver on one host, with the apiserver claiming the root.
 nginx resolves a shared host by longest prefix, so an apiserver path of "/" is
 not merely ambiguous -- it ties with the app's "/" and the controller picks one
 by rules no operator can see, which surfaces as the UI intermittently returning
-JSON. Only checked when both Ingresses are enabled on the SAME host; separate
-hostnames are a supported (if unbundled) topology.
+JSON. Only checked when both Ingresses are enabled on the SAME host; for this
+image a DIFFERENT host is not a supported topology at all -- the guard above
+already fails that case outright.
 */ -}}
 {{- if and .Values.app.enabled .Values.apiserver.enabled .Values.app.ingress.enabled .Values.apiserver.ingress.enabled }}
 {{- if eq .Values.app.ingress.host .Values.apiserver.ingress.host }}
@@ -167,6 +187,27 @@ either Ingress naming the other.
 */ -}}
 {{- if and .Values.app.ingress.tls.enabled .Values.apiserver.ingress.tls.enabled }}
 {{- fail (printf "app.ingress.tls.enabled and apiserver.ingress.tls.enabled are BOTH true for host %q: two Ingress objects declaring TLS for one host make cert-manager open two Certificates writing the same Secret, which race and overwrite each other. The app Ingress owns TLS for the shared host -- set apiserver.ingress.tls.enabled=false." .Values.app.ingress.host) }}
+{{- end }}
+
+{{- /*
+apiserver.config.corsAllowedOrigins and apiserver.config.ws.origins left
+empty on a bundled, Ingress-exposed install. Neither empty value means "no
+cross-origin access" -- ApplyAPIServerDefaults (internal/config/apiserver.go)
+turns an empty corsAllowedOrigins into ["*"] at boot, and the WS handshake
+sets AllowEmptyOrigin: len(origins) == 0 (internal/apiserver/runner.go),
+which disables origin checking entirely for /api/v1/ws. Both then answer
+every website on the internet, including the unauthenticated auth/*
+endpoints -- nothing renders, logs or warns. Same-origin removes CORS from
+the BROWSER's path, never the server's. Scoped to this same-host block, not
+unconditional: an install with no Ingress at all here (fronted by a
+hand-written Ingress or a service mesh this chart doesn't render) may have
+its own reason to leave these unset.
+*/ -}}
+{{- if not .Values.apiserver.config.corsAllowedOrigins }}
+{{- fail (printf "app.ingress and apiserver.ingress are both enabled on %q but apiserver.config.corsAllowedOrigins is empty: ApplyAPIServerDefaults turns an empty list into [\"*\"] at boot, so the apiserver answers Access-Control-Allow-Origin: * to every website on the internet, including the unauthenticated auth/* endpoints -- nothing renders, logs or warns. Set apiserver.config.corsAllowedOrigins to [\"https://%s\"]." .Values.app.ingress.host .Values.app.ingress.host) }}
+{{- end }}
+{{- if not .Values.apiserver.config.ws.origins }}
+{{- fail (printf "app.ingress and apiserver.ingress are both enabled on %q but apiserver.config.ws.origins is empty: the WS handshake sets AllowEmptyOrigin: len(origins) == 0, which disables origin checking entirely for /api/v1/ws, so it upgrades a cross-origin connection from anywhere -- nothing renders, logs or warns. Set apiserver.config.ws.origins to [\"https://%s\"]." .Values.app.ingress.host .Values.app.ingress.host) }}
 {{- end }}
 {{- end }}
 {{- end }}

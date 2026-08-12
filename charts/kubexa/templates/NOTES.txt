@@ -2,6 +2,7 @@ kubexa {{ .Chart.Version }} installed as {{ .Release.Name }}.
 
 Components:
   apiserver:   {{ if .Values.apiserver.enabled }}enabled{{ else }}disabled{{ end }}
+  app:         {{ if .Values.app.enabled }}enabled{{ else }}disabled{{ end }}
   agentserver: {{ if .Values.agentserver.enabled }}enabled ({{ include "kubexa.agentserverFullname" . }}-internal:50052){{ else }}disabled{{ end }}
   consumer:    {{ if .Values.consumer.enabled }}enabled{{ else }}disabled{{ end }}
   valkey:      {{ if .Values.valkey.enabled }}enabled ({{ include "kubexa.valkeyFullname" . }}:{{ .Values.valkey.port }}){{ else }}disabled{{ end }}
