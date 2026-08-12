@@ -37,6 +37,64 @@ valkey:
       cpu: 500m
       memory: 512Mi
 
+# ─── bundled message bus ────────────────────────────────────────────────────
+#
+# NATS JetStream: the telemetry pipeline's spine. The agentserver publishes to
+# it, the consumer pulls from it. R1 only -- config.cluster is left at the
+# chart's own default (disabled) and this umbrella adds no replica count of
+# its own; a clustered JetStream is out of scope until the pipeline has run
+# long enough in production to justify it.
+#
+# Turn it off and point agentserver.config.nats.url / consumer.config.nats.url
+# at your own NATS instance.
+nats:
+  enabled: true
+  # A static name, not <release>-nats: Helm does not template values.yaml, so
+  # a release-derived name could not be written into
+  # agentserver.config.nats.url / consumer.config.nats.url below. Without
+  # this, a release named anything other than "kubexa" renders a Service
+  # named "<release>-nats" while those values still say "kubexa-nats", and
+  # both the agentserver and the consumer connect to nothing. The consequence
+  # is one umbrella release per namespace, the same rule valkey.serviceName
+  # already follows -- change this and the two url entries together if you
+  # need a second bundled install in one namespace.
+  fullnameOverride: kubexa-nats
+  # Generated on first install and preserved across upgrades. Set it to pin.
+  password: ""
+  config:
+    jetstream:
+      enabled: true
+      fileStore:
+        enabled: true
+        pvc:
+          enabled: true
+          # Starting value, not a measurement -- same caveat as
+          # agentserver.config.nats.jetstream.maxBytes below (8Gi). Read the
+          # stream's real growth with `nats stream info` once the pipeline is
+          # live and revise both together: templates/guards.yaml fails the
+          # render if maxBytes reaches or exceeds this size, because a stream
+          # that fills its configured byte limit before the volume behind it
+          # fills is one failure mode, and a volume that fills first while
+          # JetStream still thinks it has headroom is the other -- either way
+          # the two numbers drifting apart is a silent trap, not a tradeoff.
+          size: 16Gi
+    # Static-user auth, following the pattern documented in the upstream
+    # chart's own values.yaml (config.merge / container.env). The password
+    # itself is never a value here -- it arrives only as $NATS_PASSWORD, from
+    # the Secret templates/nats-secret.yaml generates, and is substituted into
+    # the rendered nats.conf by the NATS chart's own "<< $VAR >>" convention.
+    merge:
+      authorization:
+        user: kubexa
+        password: << $NATS_PASSWORD >>
+  container:
+    env:
+      NATS_PASSWORD:
+        valueFrom:
+          secretKeyRef:
+            name: kubexa-nats-auth
+            key: password
+
 # ─── components ─────────────────────────────────────────────────────────────
 
 apiserver:
@@ -53,10 +111,54 @@ apiserver:
           host: ""
         users:
           host: ""
+      agentserver:
+        # -internal, not the plain Service: an earlier task moved the admin
+        # port onto a second, always-ClusterIP Service so that a LoadBalancer
+        # or NodePort type on the agent-facing one cannot publish it.
+        # kubexa-agentserver:50052 renders and installs cleanly and then never
+        # connects, because that Service does not carry port 50052 at all.
+        controlAddr: kubexa-agentserver-internal:50052
   secrets:
     # By reference, not by value: the bundled Valkey generates its password
     # into its own Secret at render time, and a generated value cannot travel
     # through values into a sibling chart.
     redisPasswordSecret:
       name: kubexa-valkey-auth
+      key: password
+
+agentserver:
+  enabled: true
+  # Everything under here is the kubexa-agentserver chart's own values
+  # surface; see its README. Only the wiring this chart is responsible for is
+  # set. replicas is left untouched -- the chart's own default (1) is already
+  # correct and values.schema.json pins it there; the apiserver reaches this
+  # process through a single controlAddr, so a second replica would serve
+  # stale tokens and stale tenant ingest limits with no error anywhere.
+  config:
+    nats:
+      url: nats://kubexa-nats:4222
+      username: kubexa
+  secrets:
+    # Both by reference, not by value -- the same reason apiserver's
+    # redisPasswordSecret above is: a generated password cannot travel into a
+    # sibling chart's values, Helm coalesces values before rendering, so it
+    # moves by naming the Secret the bundled chart generates it into.
+    natsPasswordSecret:
+      name: kubexa-nats-auth
+      key: password
+    redisPasswordSecret:
+      name: kubexa-valkey-auth
+      key: password
+
+consumer:
+  enabled: true
+  # Everything under here is the kubexa-consumer chart's own values surface;
+  # see its README. Only the wiring this chart is responsible for is set.
+  config:
+    nats:
+      url: nats://kubexa-nats:4222
+      username: kubexa
+  secrets:
+    natsPasswordSecret:
+      name: kubexa-nats-auth
       key: password

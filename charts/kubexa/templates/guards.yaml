@@ -10,3 +10,70 @@ sides.
 {{- fail (printf "valkey.enabled=false but apiserver.secrets.redisPasswordSecret.name is still %q, the Secret templates/valkey-secret.yaml would have generated for the bundled Valkey. With valkey disabled that Secret is never rendered, and kubexa-apiserver's KUBEXA_APISERVER_REDIS_PASSWORD secretKeyRef is deliberately non-optional, so the apiserver pod fails with CreateContainerConfigError: secret %q not found. Pick one: (1) set apiserver.secrets.redisPasswordSecret.name to \"\" and set apiserver.secrets.redisPassword to your Redis instance's password (or leave both empty if it needs none), or (2) point apiserver.secrets.redisPasswordSecret.name (and .key) at a Secret you created yourself." $valkeyAuthSecret $valkeyAuthSecret) }}
 {{- end }}
 {{- end }}
+
+{{- /*
+NATS disabled, but the agentserver and/or the consumer are still pointed at
+the bundled NATS's Service name. With nats.enabled=false that Service (and
+the Secret templates/nats-secret.yaml would have generated) are never
+rendered, so the pointed-at name resolves to nothing: the agentserver
+buffers every batch to its spill volume and retries forever (maxReconnects
+defaults to -1), and the consumer's /readyz never turns ready because its
+`nats` component check never reports ok -- neither failure names NATS as the
+cause anywhere a first-time reader would look.
+*/ -}}
+{{- if not .Values.nats.enabled }}
+{{- $bundledNatsURL := "nats://kubexa-nats:4222" }}
+{{- if and .Values.agentserver.enabled (eq .Values.agentserver.config.nats.url $bundledNatsURL) }}
+{{- fail (printf "nats.enabled=false but agentserver.config.nats.url is still %q, the bundled NATS chart's Service name. That Service is never rendered with nats disabled, so the agentserver dials a name that resolves to nothing. Point agentserver.config.nats.url at your own NATS instance." $bundledNatsURL) }}
+{{- end }}
+{{- if and .Values.consumer.enabled (eq .Values.consumer.config.nats.url $bundledNatsURL) }}
+{{- fail (printf "nats.enabled=false but consumer.config.nats.url is still %q, the bundled NATS chart's Service name. That Service is never rendered with nats disabled, so the consumer dials a name that resolves to nothing and /readyz never turns ready. Point consumer.config.nats.url at your own NATS instance." $bundledNatsURL) }}
+{{- end }}
+{{- end }}
+
+{{- /*
+The agentserver and the apiserver pointed at different Redis/Valkey
+instances. internal/agentserver/runner.go:183 starts the demand-driven watch
+reconciler against agentserver.config.redis -- its leases are shared state
+with the apiserver's own upstreams.redis, not independent config surfaces --
+so an agentserver pointed elsewhere starts no reconciler and says nothing
+beyond a warn log. An EMPTY agentserver.config.redis.addrs is deliberately
+not guarded here: that is the documented "reconciler stays unstarted"
+degraded state (see the agentserver chart's own values.yaml), not a
+mismatch.
+*/ -}}
+{{- if and .Values.agentserver.enabled .Values.apiserver.enabled .Values.agentserver.config.redis.addrs }}
+{{- if ne (toJson .Values.agentserver.config.redis.addrs) (toJson .Values.apiserver.config.upstreams.redis.addrs) }}
+{{- fail (printf "agentserver.config.redis.addrs (%s) differs from apiserver.config.upstreams.redis.addrs (%s): internal/agentserver/runner.go:183's demand-driven watch reconciler shares its leases with the apiserver through this same Redis/Valkey, so an agentserver pointed at a different instance starts a reconciler whose leases nothing else ever sees, with only a warn log naming it. Point both at the same Redis/Valkey instance." (toJson .Values.agentserver.config.redis.addrs) (toJson .Values.apiserver.config.upstreams.redis.addrs)) }}
+{{- end }}
+{{- end }}
+
+{{- /*
+The agentserver's JetStream byte cap at or above the bundled NATS PVC's size.
+Both numbers are starting values (see the comments on each in values.yaml),
+but whichever direction they drift, having them cross is silent: JetStream
+enforces config.nats.jetstream.maxBytes as a soft cap on the stream and
+starts refusing publishes once it is reached (internal/agentserver/nats
+buffers instead, to the OTHER volume, the spill disk) while the filesystem
+underneath store_dir still has room, or the PVC fills first and NATS starts
+returning "no space left on device" while it still believes it has budget --
+either way nothing at the chart level says the two were ever meant to relate.
+Only checked when nats's own JetStream file store is actually what backs the
+stream (fileStore/PVC enabled); memory-only or externally-sized deployments
+are not this guard's concern.
+*/ -}}
+{{- if and .Values.nats.enabled .Values.agentserver.enabled .Values.nats.config.jetstream.enabled .Values.nats.config.jetstream.fileStore.enabled }}
+{{- $effectiveSize := "" }}
+{{- if .Values.nats.config.jetstream.fileStore.maxSize }}
+{{- $effectiveSize = .Values.nats.config.jetstream.fileStore.maxSize }}
+{{- else if .Values.nats.config.jetstream.fileStore.pvc.enabled }}
+{{- $effectiveSize = .Values.nats.config.jetstream.fileStore.pvc.size }}
+{{- end }}
+{{- if $effectiveSize }}
+{{- $pvcBytes := include "kubexa.bytesFromQuantity" $effectiveSize | float64 }}
+{{- $maxBytes := .Values.agentserver.config.nats.jetstream.maxBytes | float64 }}
+{{- if ge $maxBytes $pvcBytes }}
+{{- fail (printf "agentserver.config.nats.jetstream.maxBytes (%v bytes) is at or above the bundled NATS's file store size (%s = %v bytes): both are starting values, not measurements (see the comments on each in values.yaml), but with the stream's byte cap at or past the volume that stores it, JetStream can fill the PVC before it ever enforces its own limit -- or the reverse, if the volume is smaller, the disk fills and NATS starts refusing writes with nothing calling out that the two numbers were ever supposed to relate. Lower agentserver.config.nats.jetstream.maxBytes, raise nats.config.jetstream.fileStore.pvc.size (or .maxSize), or -- once the pipeline is live -- read the stream's real growth with `nats stream info` and set both from that." $maxBytes $effectiveSize $pvcBytes) }}
+{{- end }}
+{{- end }}
+{{- end }}

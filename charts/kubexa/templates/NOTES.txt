@@ -1,8 +1,11 @@
 kubexa {{ .Chart.Version }} installed as {{ .Release.Name }}.
 
 Components:
-  apiserver: {{ if .Values.apiserver.enabled }}enabled{{ else }}disabled{{ end }}
-  valkey:    {{ if .Values.valkey.enabled }}enabled ({{ include "kubexa.valkeyFullname" . }}:{{ .Values.valkey.port }}){{ else }}disabled{{ end }}
+  apiserver:   {{ if .Values.apiserver.enabled }}enabled{{ else }}disabled{{ end }}
+  agentserver: {{ if .Values.agentserver.enabled }}enabled (kubexa-agentserver-internal:50052){{ else }}disabled{{ end }}
+  consumer:    {{ if .Values.consumer.enabled }}enabled{{ else }}disabled{{ end }}
+  valkey:      {{ if .Values.valkey.enabled }}enabled ({{ include "kubexa.valkeyFullname" . }}:{{ .Values.valkey.port }}){{ else }}disabled{{ end }}
+  nats:        {{ if .Values.nats.enabled }}enabled (kubexa-nats:4222){{ else }}disabled{{ end }}
 
 {{- if and .Values.valkey.enabled .Values.apiserver.enabled }}
 {{- if not (has (printf "%s:%v" (include "kubexa.valkeyFullname" .) .Values.valkey.port) .Values.apiserver.config.upstreams.redis.addrs) }}
@@ -26,5 +29,40 @@ apiserver.secrets.redisPasswordSecret.name to "{{ $valkeyAuthSecret }}".
 {{- end }}
 {{- end }}
 
-Next: the agentserver and the telemetry pipeline are not part of this release
-yet. See the chart README.
+{{- if and .Values.agentserver.enabled .Values.apiserver.enabled }}
+{{- if ne .Values.apiserver.config.upstreams.agentserver.controlAddr "kubexa-agentserver-internal:50052" }}
+
+WARNING: agentserver is enabled but apiserver.config.upstreams.agentserver.controlAddr
+("{{ .Values.apiserver.config.upstreams.agentserver.controlAddr }}") does not
+point at the bundled agentserver's internal Service
+("kubexa-agentserver-internal:50052"). The apiserver's gateway client dials
+lazily and its readiness check for this dependency is soft, so the pod stays
+Ready while agent token replacement and tenant ingest limit pushes silently
+fail against whatever that address actually is.
+{{- end }}
+{{- end }}
+
+Next steps -- a successful `helm install`/`--wait` only proves every enabled
+Deployment/StatefulSet became Ready. It does NOT prove telemetry is actually
+flowing end to end: the consumer's `/readyz` gates on nats, writers, registry
+AND consuming all reporting ok, but nothing in this cluster ever calls that
+Service -- its only real consumer is the rollout wait itself, and it turns
+Ready the moment those four checks pass even if zero agents have ever
+connected. To confirm the pipeline is actually carrying data once an agent is
+pointed at the agentserver:
+
+  1. Agent connected: kubectl logs against the agentserver pod should show a
+     handshake accepted; kubexa_gateway_handshake_rejected_total staying at 0
+     is the metric form of the same check.
+  2. NATS is receiving: `kubectl exec` into a nats-box pod (this chart
+     bundles one) and run `nats stream info KUBEXA_TELEMETRY` -- the message
+     count should be climbing, not flat.
+  3. The consumer is writing: check its `/metrics` (or `kubectl logs`) for
+     write errors, and confirm rows/entries are actually landing in
+     Postgres/Loki/VictoriaMetrics for the cluster you connected -- a
+     Ready consumer pod with an empty destination usually means the writer
+     for that destination was never enabled (see the kubexa-consumer
+     README's "Credentials" section for what each writer requires to turn on).
+
+See the kubexa-apiserver, kubexa-agentserver and kubexa-consumer chart READMEs
+(linked from this chart's README) for the full configuration surface of each.
