@@ -20,7 +20,11 @@ dependencies:
   # with values; it re-templates none of their objects.
   - name: kubexa-apiserver
     alias: apiserver
-    version: "0.2.0"
+    # 0.3.0 is the first version that carries the Postgres password env seams
+    # (secrets.postgresAppPassword / postgresUsersPassword). On 0.2.0 the only
+    # way to deliver those passwords was a hand-written config Secret or a
+    # --set on the command line.
+    version: "0.3.0"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
