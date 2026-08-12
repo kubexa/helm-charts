@@ -2,7 +2,7 @@ kubexa {{ .Chart.Version }} installed as {{ .Release.Name }}.
 
 Components:
   apiserver:   {{ if .Values.apiserver.enabled }}enabled{{ else }}disabled{{ end }}
-  agentserver: {{ if .Values.agentserver.enabled }}enabled (kubexa-agentserver-internal:50052){{ else }}disabled{{ end }}
+  agentserver: {{ if .Values.agentserver.enabled }}enabled ({{ include "kubexa.agentserverFullname" . }}-internal:50052){{ else }}disabled{{ end }}
   consumer:    {{ if .Values.consumer.enabled }}enabled{{ else }}disabled{{ end }}
   valkey:      {{ if .Values.valkey.enabled }}enabled ({{ include "kubexa.valkeyFullname" . }}:{{ .Values.valkey.port }}){{ else }}disabled{{ end }}
   nats:        {{ if .Values.nats.enabled }}enabled (kubexa-nats:4222){{ else }}disabled{{ end }}
@@ -30,15 +30,19 @@ apiserver.secrets.redisPasswordSecret.name to "{{ $valkeyAuthSecret }}".
 {{- end }}
 
 {{- if and .Values.agentserver.enabled .Values.apiserver.enabled }}
-{{- if ne .Values.apiserver.config.upstreams.agentserver.controlAddr "kubexa-agentserver-internal:50052" }}
+{{- $expectedControlAddr := printf "%s-internal:50052" (include "kubexa.agentserverFullname" .) }}
+{{- if ne .Values.apiserver.config.upstreams.agentserver.controlAddr $expectedControlAddr }}
 
 WARNING: agentserver is enabled but apiserver.config.upstreams.agentserver.controlAddr
 ("{{ .Values.apiserver.config.upstreams.agentserver.controlAddr }}") does not
-point at the bundled agentserver's internal Service
-("kubexa-agentserver-internal:50052"). The apiserver's gateway client dials
-lazily and its readiness check for this dependency is soft, so the pod stays
-Ready while agent token replacement and tenant ingest limit pushes silently
-fail against whatever that address actually is.
+point at the bundled agentserver's internal Service ("{{ $expectedControlAddr }}",
+computed from agentserver.fullnameOverride, not a copy of the same literal).
+The apiserver's gateway client dials lazily and its readiness check for this
+dependency is soft, so the pod stays Ready while agent token replacement and
+tenant ingest limit pushes silently fail against whatever that address
+actually is. Set apiserver.config.upstreams.agentserver.controlAddr to
+"{{ $expectedControlAddr }}", or -- if you deliberately changed
+agentserver.fullnameOverride -- update this address to match it.
 {{- end }}
 {{- end }}
 

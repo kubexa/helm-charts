@@ -94,6 +94,33 @@ nats:
           secretKeyRef:
             name: kubexa-nats-auth
             key: password
+  # The bundled nats-box: this is what `nats stream info`, `nats stream ls`
+  # etc. run against once you `kubectl exec` into it, and it is also the pod
+  # `helm test` runs. Verified empirically (a throwaway nats-server + nats-box
+  # pair run locally) that the NATS CLI's context.json does NOT expand `$VAR`
+  # tokens the way nats-server's own config parser does -- a literal
+  # "password": "$NATS_PASSWORD" in a context file is sent to the server
+  # as-is and rejected with an Authorization Violation. What DOES work,
+  # confirmed the same way: the CLI's global --user/--password flags bind to
+  # the NATS_USER/NATS_PASSWORD environment variables (its own --help says so:
+  # "--password=PASSWORD Password ($NATS_PASSWORD)") and take priority over
+  # whatever the selected context says, printing "WARNING: Shell environment
+  # overrides in place using NATS_PASSWORD" and connecting successfully. So
+  # the context below only carries the (non-secret) username, and the actual
+  # credential arrives as an env var sourced from the same generated Secret
+  # the main NATS container reads -- by reference, never a value here.
+  natsBox:
+    contexts:
+      default:
+        merge:
+          user: kubexa
+    container:
+      env:
+        NATS_PASSWORD:
+          valueFrom:
+            secretKeyRef:
+              name: kubexa-nats-auth
+              key: password
 
 # ─── components ─────────────────────────────────────────────────────────────
 
@@ -117,6 +144,12 @@ apiserver:
         # or NodePort type on the agent-facing one cannot publish it.
         # kubexa-agentserver:50052 renders and installs cleanly and then never
         # connects, because that Service does not carry port 50052 at all.
+        #
+        # This literal only stays correct because agentserver.fullnameOverride
+        # below is pinned to "kubexa-agentserver" rather than left to derive
+        # from the release name -- templates/NOTES.txt recomputes the expected
+        # address from that same value and warns if the two ever drift apart,
+        # rather than comparing this literal against a second copy of itself.
         controlAddr: kubexa-agentserver-internal:50052
   secrets:
     # By reference, not by value: the bundled Valkey generates its password
@@ -128,6 +161,19 @@ apiserver:
 
 agentserver:
   enabled: true
+  # A static name, not <release>-agentserver: the same reason
+  # nats.fullnameOverride and valkey.serviceName are both pinned above.
+  # apiserver.config.upstreams.agentserver.controlAddr below is a literal
+  # string in this file (Helm does not template values.yaml), computed as
+  # "<this name>-internal:50052" -- so it can only stay correct across
+  # release names if this chart's own Service name is also a
+  # release-independent literal. Without this, `helm install prod ...` would
+  # render kubexa-agentserver's Services as "prod-agentserver[-internal]"
+  # while controlAddr still said "kubexa-agentserver-internal:50052", and the
+  # apiserver's gateway client would dial a Service that doesn't exist --
+  # silently, since that dependency's readiness check is soft and the
+  # install would stay Ready throughout.
+  fullnameOverride: kubexa-agentserver
   # Everything under here is the kubexa-agentserver chart's own values
   # surface; see its README. Only the wiring this chart is responsible for is
   # set. replicas is left untouched -- the chart's own default (1) is already
@@ -138,6 +184,14 @@ agentserver:
     nats:
       url: nats://kubexa-nats:4222
       username: kubexa
+    # Same Redis/Valkey the apiserver above points at, not an independent
+    # choice: internal/agentserver/runner.go's demand-driven watch
+    # reconciler shares its leases with the apiserver through this instance,
+    # so the two config surfaces have to agree, not just each be individually
+    # valid. templates/guards.yaml fails the render if they're set apart.
+    redis:
+      addrs:
+        - kubexa-valkey:6379
   secrets:
     # Both by reference, not by value -- the same reason apiserver's
     # redisPasswordSecret above is: a generated password cannot travel into a
@@ -152,6 +206,14 @@ agentserver:
 
 consumer:
   enabled: true
+  # A static name, not <release>-consumer -- same reason as agentserver's
+  # fullnameOverride above. Nothing in this chart addresses the consumer's
+  # Service by name today (it has no inbound caller at all -- see its own
+  # README), but pinning it now keeps that true by construction instead of
+  # by accident, and keeps the naming scheme uniform across all four "static
+  # per component" Service names (kubexa-valkey, kubexa-nats,
+  # kubexa-agentserver, kubexa-consumer).
+  fullnameOverride: kubexa-consumer
   # Everything under here is the kubexa-consumer chart's own values surface;
   # see its README. Only the wiring this chart is responsible for is set.
   config:
