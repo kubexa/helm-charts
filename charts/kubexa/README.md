@@ -1,19 +1,22 @@
 # kubexa
 
-The Kubexa umbrella chart: one Helm release for the whole platform. Today
-that means the `kubexa-apiserver` component and the datastore it needs to run
-that isn't assumed to already exist in your cluster — a bundled Valkey. The
-agentserver and the telemetry pipeline (Loki, VictoriaMetrics) are not part
-of this release yet; install and wire them separately.
+The Kubexa umbrella chart: one Helm release for the whole platform. That
+means `kubexa-apiserver`, `kubexa-agentserver` and `kubexa-consumer`, and the
+infrastructure they need that isn't assumed to already exist in your cluster
+— a bundled Valkey and a bundled NATS JetStream. Loki and VictoriaMetrics are
+still not part of this release: they're the consumer's write destinations,
+not a dependency this chart can meaningfully default, so point
+`consumer.config.loki.url` / `consumer.config.victoriaMetrics.url` (and the
+matching `apiserver.config.upstreams.*`) at your own.
 
 ## Two ways to install Kubexa
 
 **This chart**, if you want a single `helm install` to stand up the
-platform's own pieces and the datastore they need, without hunting down each
-component chart and wiring them together by hand. It is a thin wrapper: it
-adds the infrastructure a bundled install needs (Valkey) and passes wiring
-into the component chart as values. It owns no object the component chart
-itself renders.
+platform's own pieces and the datastores/message bus they need, without
+hunting down each component chart and wiring them together by hand. It is a
+thin wrapper: it adds the infrastructure a bundled install needs (Valkey,
+NATS) and passes wiring into each component chart as values. It owns no
+object any component chart itself renders.
 
 **The component charts directly** (e.g. `oci://ghcr.io/kubexa/charts/kubexa-apiserver`),
 if you already run your own Redis/Valkey, want independent upgrade cadences
@@ -22,9 +25,9 @@ see the one-release-per-namespace note below for why the umbrella can't do
 that last one. Installing the component charts directly is fully supported;
 this chart is a convenience, not the only supported path.
 
-Both paths converge on the same rendered objects for `kubexa-apiserver` —
-this chart passes `apiserver.*` straight through as that chart's values, it
-does not reinterpret them.
+Both paths converge on the same rendered objects for each component chart —
+this chart passes `apiserver.*` / `agentserver.*` / `consumer.*` straight
+through as those charts' own values, it does not reinterpret them.
 
 ## Quick start
 
@@ -33,31 +36,32 @@ helm install kubexa oci://ghcr.io/kubexa/charts/kubexa \
   --namespace kubexa --create-namespace \
   --set apiserver.config.upstreams.postgres.app.host=pg.example.com \
   --set apiserver.config.upstreams.postgres.users.host=pg.example.com \
-  --set apiserver.config.upstreams.agentserver.controlAddr=agentserver.example.com:50052 \
   --set apiserver.bootstrap.superadminEmail=admin@example.com \
   --set apiserver.bootstrap.superadminPassword=change-me
 ```
 
-`apiserver.config.upstreams.agentserver.controlAddr` must be set at install
-time — `kubexa-apiserver`'s `values.schema.json` requires it and this
-umbrella deliberately ships no default for it (see "Component toggles"
-below). It may point at an agentserver Service that does not exist yet: the
-gateway client dials lazily and the readiness check for it is soft, so the
-apiserver comes up and serves everything else while that dependency is
-missing. A later release of this chart will set it for you once the
-agentserver chart joins the bundle.
+`apiserver.config.upstreams.agentserver.controlAddr` no longer needs setting
+at install time: this chart's own `values.yaml` now points it at the bundled
+agentserver's internal Service (`kubexa-agentserver-internal:50052`), the
+same one `agentserver.enabled` brings up. Override it only if you disable the
+bundled agentserver (`agentserver.enabled=false`) and run your own —
+`templates/NOTES.txt` warns if the two are enabled but the address doesn't
+match.
 
 ## Component toggles
 
 | Toggle | Default | Effect when `false` |
 |---|---|---|
 | `valkey.enabled` | `true` | No Valkey StatefulSet/Service/Secret is rendered. Point `apiserver.config.upstreams.redis.addrs` at your own Redis- or Valkey-compatible instance instead. |
-| `apiserver.enabled` | `true` | The `kubexa-apiserver` dependency is skipped entirely (it's the chart's `condition`). Use this if you're installing the apiserver separately and only want this chart for the datastore. |
+| `nats.enabled` | `true` | No NATS StatefulSet/Service/Secret is rendered. Point `agentserver.config.nats.url` and `consumer.config.nats.url` at your own NATS instance instead — `templates/guards.yaml` fails the render if either is still left at the bundled Service's address while `nats.enabled=false`. |
+| `apiserver.enabled` | `true` | The `kubexa-apiserver` dependency is skipped entirely (it's the chart's `condition`). |
+| `agentserver.enabled` | `true` | The `kubexa-agentserver` dependency is skipped entirely. Use this if you're installing it separately (e.g. with its own ingress) or not running it at all yet. |
+| `consumer.enabled` | `true` | The `kubexa-consumer` dependency is skipped entirely. Telemetry then accumulates in the NATS stream unread until a consumer (bundled or otherwise) pulls from it. |
 
-Every other key under `apiserver.*` is passed straight through to the
-`kubexa-apiserver` chart's own values — see its README (linked below) for the
-full surface, including replicas, persistence, ingress, probes, and secret
-handling.
+Every other key under `apiserver.*` / `agentserver.*` / `consumer.*` is
+passed straight through to that chart's own values — see its README (linked
+below) for the full surface, including replicas, persistence, ingress,
+probes, and secret handling.
 
 ## Bring your own Redis
 
@@ -131,25 +135,125 @@ is silent otherwise: `/readyz` treats Redis as a soft dependency, so the pod
 stays Ready while rate limiting, notification fan-out and demand-driven watch
 leases quietly stop working.
 
+## Bring your own NATS
+
+To use your own NATS instance instead of the bundled one, set
+`nats.enabled: false` and point both `agentserver.config.nats.url` and
+`consumer.config.nats.url` at it. `templates/guards.yaml` fails the render if
+either is still left at `nats://kubexa-nats:4222` — the bundled Service's
+address — while `nats.enabled=false`, since with NATS disabled that name
+resolves to nothing and the failure (the agentserver buffering to disk
+forever, the consumer's `/readyz` never turning ready) doesn't name NATS as
+the cause anywhere.
+
+If your NATS requires auth, set `agentserver.config.nats.username` /
+`consumer.config.nats.username` and point
+`agentserver.secrets.natsPasswordSecret` / `consumer.secrets.natsPasswordSecret`
+at a Secret you manage yourself — the same by-reference mechanism this chart
+uses for the bundled NATS's generated password (see "Bundled NATS
+authentication" below). Both component charts refuse a password secret with
+no matching username at render time (their own `templates/_helpers.tpl`
+guards), since neither client sends a password without one.
+
+## Bundled NATS authentication
+
+The bundled NATS's password is generated by `templates/nats-secret.yaml` into
+a Secret named `kubexa-nats-auth` and is never written into `values.yaml` —
+the same reasoning as the bundled Valkey's password (see "Bundled Redis
+authentication" above), and the same `lookup`-preserves-across-upgrades
+shape. `agentserver.secrets.natsPasswordSecret.name` and
+`consumer.secrets.natsPasswordSecret.name` in this chart's `values.yaml`
+point at it by reference, and `agentserver.config.nats.username` /
+`consumer.config.nats.username` are both set to `kubexa` — the static user
+the bundled NATS is configured to accept (see `nats.config.merge` in
+`values.yaml`).
+
+Unlike Valkey's Service name, `nats.fullnameOverride` (`kubexa-nats`) is not
+a value you're expected to change — see "One release per namespace" below —
+so there's no matching "if you change it, change these too" step here.
+
+## JetStream sizing
+
+`nats.config.jetstream.fileStore.pvc.size` (default `16Gi`) and
+`agentserver.config.nats.jetstream.maxBytes` (default `8589934592`, i.e. 8Gi)
+are both **starting values, not measurements** — neither the PVC size nor the
+stream's byte cap reflects any real telemetry volume yet. Once the pipeline
+is live, read the stream's actual growth with `nats stream info
+KUBEXA_TELEMETRY` (from a `nats-box` pod, which this chart bundles) and
+revise both from that.
+
+`templates/guards.yaml` fails the render if `maxBytes` is at or above the PVC
+size: JetStream enforcing a byte cap the underlying volume can't actually
+hold (or the reverse — the volume filling before JetStream ever enforces its
+own limit) is a silent trap either direction, not a tradeoff either value on
+its own could catch.
+
+## The agentserver↔consumer NATS contract
+
+Three values must agree between `agentserver.config.nats.*` and
+`consumer.config.nats.*` / `consumer.config.backpressure.*` for a message to
+travel from the agentserver to the consumer at all — the stream name, the
+subject prefix, and the backpressure subject. `templates/guards.yaml` checks
+all three by equality and `fail`s the render on any mismatch, including the
+likely real-world one: one side left at its chart default while only the
+other is overridden (e.g. `--set consumer.config.nats.subjectPrefix=telemetry`
+with nothing said about the agentserver side). Without this guard that
+combination renders and installs cleanly, every pod reports Ready, and
+telemetry silently accumulates in the stream until it prunes at `max_bytes` —
+nothing else in the pipeline would have named the cause.
+
+The backpressure-subject check only runs while
+`consumer.config.backpressure.enabled` is `true` (the chart default): with it
+`false` the consumer publishes no leases at all, which is a deliberate
+degraded state, not a mismatch to fail on.
+
+## Loki / VictoriaMetrics URL agreement
+
+`apiserver.config.upstreams.loki.url` (what the log API reads) and
+`consumer.config.loki.url` (what the consumer writes) must be the same
+instance, or the log UI returns an empty result set while `/readyz` still
+reports `loki: ok` — readiness only checks that the configured URL answers,
+never that it's the URL anything writes to. The same applies to
+`apiserver.config.upstreams.victoriametrics.url` /
+`consumer.config.victoriaMetrics.url`. `templates/guards.yaml` fails the
+render on either pair differing, in either direction — including exactly one
+side left empty while the other is set, which is worse than two different
+non-empty values, since one component then looks fully configured and
+healthy while the other never receives anything to serve. Both sides empty is
+deliberately not guarded: that is the legitimate "this install does not use
+Loki/VictoriaMetrics at all" state, and neither chart defaults either URL, so
+a stock install starts in exactly that state.
+
 ## One release per namespace
 
 `valkey.serviceName` (default `kubexa-valkey`) is a **static** name, not
-`<release>-valkey`. Helm does not template `values.yaml`, so a
-release-derived Service name could not be written into the apiserver's own
-`config.upstreams.redis.addrs` default in this chart's `values.yaml` — that
-value has to be a literal string, computed before any release name is known.
+`<release>-valkey`, for the same reason `nats.fullnameOverride` (`kubexa-nats`,
+mandatory rather than configurable) is: Helm does not template `values.yaml`,
+so a release-derived Service name could not be written into the apiserver's
+own `config.upstreams.redis.addrs`, or the agentserver's/consumer's
+`config.nats.url`, defaults in this chart's `values.yaml` — those values have
+to be literal strings, computed before any release name is known.
 
 The consequence: two `kubexa` umbrella releases in the same namespace would
-collide on the Valkey Service name. If you need more than one bundled install
-in a namespace, change `valkey.serviceName` (and the matching
+collide on the Valkey Service name (and on the NATS Service name, and on the
+agentserver's Service names, and the consumer's). If you need more than one
+bundled install in a namespace, change `valkey.serviceName` (and the matching
 `apiserver.config.upstreams.redis.addrs` **and**
 `apiserver.secrets.redisPasswordSecret.name` entries) to something unique per
-release, or install into separate namespaces instead.
+release, or install into separate namespaces instead — the umbrella has no
+equivalent override for the NATS/agentserver/consumer Service names, so a
+second bundled NATS or agentserver in one namespace isn't supported at all
+today.
 
 ## Component documentation
 
-Everything under `apiserver.*` in this chart's `values.yaml` is the
-`kubexa-apiserver` chart's own values surface, unmodified. See
-[`kubexa-apiserver`'s README](https://github.com/kubexa/kubexa-backend/tree/main/helm/kubexa-apiserver)
+Everything under `apiserver.*` / `agentserver.*` / `consumer.*` in this
+chart's `values.yaml` is that component chart's own values surface,
+unmodified. See:
+
+- [`kubexa-apiserver`'s README](https://github.com/kubexa/kubexa-backend/tree/main/helm/kubexa-apiserver)
+- [`kubexa-agentserver`'s README](https://github.com/kubexa/kubexa-backend/tree/main/helm/kubexa-agentserver)
+- [`kubexa-consumer`'s README](https://github.com/kubexa/kubexa-consumer/tree/main/helm/kubexa-consumer)
+
 for the full field reference, upgrade behavior, probe semantics, and secret
-handling — this chart does not repeat it.
+handling of each — this chart does not repeat any of it.

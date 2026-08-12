@@ -10,3 +10,136 @@ sides.
 {{- fail (printf "valkey.enabled=false but apiserver.secrets.redisPasswordSecret.name is still %q, the Secret templates/valkey-secret.yaml would have generated for the bundled Valkey. With valkey disabled that Secret is never rendered, and kubexa-apiserver's KUBEXA_APISERVER_REDIS_PASSWORD secretKeyRef is deliberately non-optional, so the apiserver pod fails with CreateContainerConfigError: secret %q not found. Pick one: (1) set apiserver.secrets.redisPasswordSecret.name to \"\" and set apiserver.secrets.redisPassword to your Redis instance's password (or leave both empty if it needs none), or (2) point apiserver.secrets.redisPasswordSecret.name (and .key) at a Secret you created yourself." $valkeyAuthSecret $valkeyAuthSecret) }}
 {{- end }}
 {{- end }}
+
+{{- /*
+NATS disabled, but the agentserver and/or the consumer are still pointed at
+the bundled NATS's Service name. With nats.enabled=false that Service (and
+the Secret templates/nats-secret.yaml would have generated) are never
+rendered, so the pointed-at name resolves to nothing: the agentserver
+buffers every batch to its spill volume and retries forever (maxReconnects
+defaults to -1), and the consumer's /readyz never turns ready because its
+`nats` component check never reports ok -- neither failure names NATS as the
+cause anywhere a first-time reader would look.
+*/ -}}
+{{- if not .Values.nats.enabled }}
+{{- $bundledNatsURL := "nats://kubexa-nats:4222" }}
+{{- if and .Values.agentserver.enabled (eq .Values.agentserver.config.nats.url $bundledNatsURL) }}
+{{- fail (printf "nats.enabled=false but agentserver.config.nats.url is still %q, the bundled NATS chart's Service name. That Service is never rendered with nats disabled, so the agentserver dials a name that resolves to nothing. Point agentserver.config.nats.url at your own NATS instance." $bundledNatsURL) }}
+{{- end }}
+{{- if and .Values.consumer.enabled (eq .Values.consumer.config.nats.url $bundledNatsURL) }}
+{{- fail (printf "nats.enabled=false but consumer.config.nats.url is still %q, the bundled NATS chart's Service name. That Service is never rendered with nats disabled, so the consumer dials a name that resolves to nothing and /readyz never turns ready. Point consumer.config.nats.url at your own NATS instance." $bundledNatsURL) }}
+{{- end }}
+{{- end }}
+
+{{- /*
+The agentserver and the apiserver pointed at different Redis/Valkey
+instances. internal/agentserver/runner.go:183 starts the demand-driven watch
+reconciler against agentserver.config.redis -- its leases are shared state
+with the apiserver's own upstreams.redis, not independent config surfaces --
+so an agentserver pointed elsewhere starts no reconciler and says nothing
+beyond a warn log. An EMPTY agentserver.config.redis.addrs is deliberately
+not guarded here: that is the documented "reconciler stays unstarted"
+degraded state (see the agentserver chart's own values.yaml), not a
+mismatch.
+*/ -}}
+{{- if and .Values.agentserver.enabled .Values.apiserver.enabled .Values.agentserver.config.redis.addrs }}
+{{- if ne (toJson .Values.agentserver.config.redis.addrs) (toJson .Values.apiserver.config.upstreams.redis.addrs) }}
+{{- fail (printf "agentserver.config.redis.addrs (%s) differs from apiserver.config.upstreams.redis.addrs (%s): internal/agentserver/runner.go:183's demand-driven watch reconciler shares its leases with the apiserver through this same Redis/Valkey, so an agentserver pointed at a different instance starts a reconciler whose leases nothing else ever sees, with only a warn log naming it. Point both at the same Redis/Valkey instance." (toJson .Values.agentserver.config.redis.addrs) (toJson .Values.apiserver.config.upstreams.redis.addrs)) }}
+{{- end }}
+{{- end }}
+
+{{- /*
+The agentserver's JetStream byte cap at or above the bundled NATS PVC's size.
+Both numbers are starting values (see the comments on each in values.yaml),
+but whichever direction they drift, having them cross is silent: JetStream
+enforces config.nats.jetstream.maxBytes as a soft cap on the stream and
+starts refusing publishes once it is reached (internal/agentserver/nats
+buffers instead, to the OTHER volume, the spill disk) while the filesystem
+underneath store_dir still has room, or the PVC fills first and NATS starts
+returning "no space left on device" while it still believes it has budget --
+either way nothing at the chart level says the two were ever meant to relate.
+Only checked when nats's own JetStream file store is actually what backs the
+stream (fileStore/PVC enabled); memory-only or externally-sized deployments
+are not this guard's concern.
+*/ -}}
+{{- if and .Values.nats.enabled .Values.agentserver.enabled .Values.nats.config.jetstream.enabled .Values.nats.config.jetstream.fileStore.enabled }}
+{{- $effectiveSize := "" }}
+{{- if .Values.nats.config.jetstream.fileStore.maxSize }}
+{{- $effectiveSize = .Values.nats.config.jetstream.fileStore.maxSize }}
+{{- else if .Values.nats.config.jetstream.fileStore.pvc.enabled }}
+{{- $effectiveSize = .Values.nats.config.jetstream.fileStore.pvc.size }}
+{{- end }}
+{{- if $effectiveSize }}
+{{- $pvcBytes := include "kubexa.bytesFromQuantity" $effectiveSize | float64 }}
+{{- $maxBytes := .Values.agentserver.config.nats.jetstream.maxBytes | float64 }}
+{{- if ge $maxBytes $pvcBytes }}
+{{- fail (printf "agentserver.config.nats.jetstream.maxBytes (%v bytes) is at or above the bundled NATS's file store size (%s = %v bytes): both are starting values, not measurements (see the comments on each in values.yaml), but with the stream's byte cap at or past the volume that stores it, JetStream can fill the PVC before it ever enforces its own limit -- or the reverse, if the volume is smaller, the disk fills and NATS starts refusing writes with nothing calling out that the two numbers were ever supposed to relate. Lower agentserver.config.nats.jetstream.maxBytes, raise nats.config.jetstream.fileStore.pvc.size (or .maxSize), or -- once the pipeline is live -- read the stream's real growth with `nats stream info` and set both from that." $maxBytes $effectiveSize $pvcBytes) }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- /*
+The agentserver↔consumer NATS contract: three independent literals that must
+each agree for a message to travel end to end at all, none of which either
+subchart's own schema can check because each depends on the other chart's
+values. All three are checked by plain string equality against each chart's
+own default -- both sides ship the SAME default for each pair (see
+values.yaml in each chart), so equality catches a drift whether it comes from
+an explicit --set on one side, or from one side being left at its default
+while only the other is overridden, which is the likely real-world mistake:
+an operator moving one side of a pair (e.g. consumer.config.nats.subjectPrefix)
+without realizing the other side needs the same change.
+*/ -}}
+{{- if and .Values.agentserver.enabled .Values.consumer.enabled }}
+{{- $agentStream := .Values.agentserver.config.nats.jetstream.stream }}
+{{- $consumerStream := .Values.consumer.config.nats.streamName }}
+{{- if ne $agentStream $consumerStream }}
+{{- fail (printf "agentserver.config.nats.jetstream.stream (%q) differs from consumer.config.nats.streamName (%q): the consumer's durable pull consumer binds to its own streamName, which does not have to be the stream the agentserver actually publishes into. With the two apart, the consumer's consumer either fails to bind (if its named stream does not exist) or binds to an unrelated, empty stream -- either way, every pod stays Ready and no telemetry ever arrives, with nothing naming the cause. Point both at the same stream name." $agentStream $consumerStream) }}
+{{- end }}
+
+{{- $agentPrefix := .Values.agentserver.config.nats.subjectPrefix }}
+{{- $consumerPrefix := .Values.consumer.config.nats.subjectPrefix }}
+{{- if ne $agentPrefix $consumerPrefix }}
+{{- fail (printf "agentserver.config.nats.subjectPrefix (%q) differs from consumer.config.nats.subjectPrefix (%q): the agentserver publishes every telemetry message under its own prefix, and the consumer's durable pull consumer filters \"<subjectPrefix>.>\" built from its own. With the two apart, every message the agentserver publishes lands on a subject the consumer never filters for -- every pod stays Ready, /readyz reports every component ok, and telemetry accumulates in the stream until it prunes at max_bytes, with nothing naming the cause. Point both at the same subject prefix." $agentPrefix $consumerPrefix) }}
+{{- end }}
+
+{{- if .Values.consumer.config.backpressure.enabled }}
+{{- $agentBackpressure := .Values.agentserver.config.nats.backpressureSubject }}
+{{- $consumerBackpressure := .Values.consumer.config.backpressure.subject }}
+{{- if ne $agentBackpressure $consumerBackpressure }}
+{{- fail (printf "agentserver.config.nats.backpressureSubject (%q) differs from consumer.config.backpressure.subject (%q): the consumer publishes write-throttle leases on its own subject, and the agentserver relays whatever arrives on its own configured subject to every connected agent as a BackpressureSignal. With the two apart, a destination refusing writes for a tenant never throttles the agents causing it -- silently, since neither side reports an error, only a write backlog that keeps growing. Point both at the same subject. (Only checked while consumer.config.backpressure.enabled is true -- with it false the consumer publishes no leases at all, which is a deliberate degraded state, not a mismatch.)" $agentBackpressure $consumerBackpressure) }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- /*
+The apiserver's read URL and the consumer's write URL for Loki and
+VictoriaMetrics must agree, or the log/metrics UI silently reads from a
+different backend than the consumer ever writes to -- an empty result set
+with /readyz still reporting the read side "ok", because readiness only
+checks that the configured URL answers, never that it is the same URL
+something else is writing to. Modelled on the Redis/Valkey guard above:
+BOTH sides empty is the deliberate "this datastore is not wired up at all"
+state (no Loki/VictoriaMetrics install, or an eval install skipping
+observability) and is not guarded -- only a difference, including exactly one
+side left empty while the other is set, which is worse than two different
+non-empty values: one component looks fully configured and healthy while the
+other never receives anything to serve.
+*/ -}}
+{{- if and .Values.apiserver.enabled .Values.consumer.enabled }}
+{{- $apiLokiURL := .Values.apiserver.config.upstreams.loki.url }}
+{{- $consumerLokiURL := .Values.consumer.config.loki.url }}
+{{- if not (and (eq $apiLokiURL "") (eq $consumerLokiURL "")) }}
+{{- if ne $apiLokiURL $consumerLokiURL }}
+{{- fail (printf "apiserver.config.upstreams.loki.url (%q) differs from consumer.config.loki.url (%q): the apiserver's log API reads from the first, the consumer writes to the second. With the two apart, the log UI returns an empty result set (or logs from the wrong cluster) while /readyz still reports \"loki: ok\", because readiness only checks that the configured URL answers, never that it is the URL anything writes to. Point both at the same Loki instance, or leave BOTH empty if this install does not use Loki at all." $apiLokiURL $consumerLokiURL) }}
+{{- end }}
+{{- end }}
+
+{{- $apiVMURL := .Values.apiserver.config.upstreams.victoriametrics.url }}
+{{- $consumerVMURL := .Values.consumer.config.victoriaMetrics.url }}
+{{- if not (and (eq $apiVMURL "") (eq $consumerVMURL "")) }}
+{{- if ne $apiVMURL $consumerVMURL }}
+{{- fail (printf "apiserver.config.upstreams.victoriametrics.url (%q) differs from consumer.config.victoriaMetrics.url (%q): the apiserver reads metrics from the first, the consumer writes to the second. With the two apart, metrics queries return empty (or metrics from the wrong cluster) while /readyz still reports the read side ok. Point both at the same VictoriaMetrics instance, or leave BOTH empty if this install does not use VictoriaMetrics at all." $apiVMURL $consumerVMURL) }}
+{{- end }}
+{{- end }}
+{{- end }}
