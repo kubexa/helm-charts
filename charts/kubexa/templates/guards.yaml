@@ -143,3 +143,30 @@ other never receives anything to serve.
 {{- end }}
 {{- end }}
 {{- end }}
+
+{{- /*
+The app and the apiserver on one host, with the apiserver claiming the root.
+nginx resolves a shared host by longest prefix, so an apiserver path of "/" is
+not merely ambiguous -- it ties with the app's "/" and the controller picks one
+by rules no operator can see, which surfaces as the UI intermittently returning
+JSON. Only checked when both Ingresses are enabled on the SAME host; separate
+hostnames are a supported (if unbundled) topology.
+*/ -}}
+{{- if and .Values.app.enabled .Values.apiserver.enabled .Values.app.ingress.enabled .Values.apiserver.ingress.enabled }}
+{{- if eq .Values.app.ingress.host .Values.apiserver.ingress.host }}
+{{- if eq .Values.apiserver.ingress.path "/" }}
+{{- fail (printf "app.ingress and apiserver.ingress are both enabled on %q, but apiserver.ingress.path is \"/\": that is the same path the web UI claims. nginx merges Ingress objects sharing a host and resolves by longest prefix, so two \"/\" rules for one host leave the controller choosing between them -- the UI answers with JSON, or the API answers with index.html, depending on which rule won. Set apiserver.ingress.path to /api/v1." .Values.app.ingress.host) }}
+{{- end }}
+
+{{- /*
+Both Ingresses declaring TLS for one host. cert-manager reads each Ingress
+independently and opens a Certificate per tls block, both writing the same
+Secret: the two orders race, each overwrites the other's key material, and the
+symptom is a certificate that intermittently fails validation with nothing in
+either Ingress naming the other.
+*/ -}}
+{{- if and .Values.app.ingress.tls.enabled .Values.apiserver.ingress.tls.enabled }}
+{{- fail (printf "app.ingress.tls.enabled and apiserver.ingress.tls.enabled are BOTH true for host %q: two Ingress objects declaring TLS for one host make cert-manager open two Certificates writing the same Secret, which race and overwrite each other. The app Ingress owns TLS for the shared host -- set apiserver.ingress.tls.enabled=false." .Values.app.ingress.host) }}
+{{- end }}
+{{- end }}
+{{- end }}
