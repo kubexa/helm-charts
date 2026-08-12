@@ -188,6 +188,42 @@ hold (or the reverse — the volume filling before JetStream ever enforces its
 own limit) is a silent trap either direction, not a tradeoff either value on
 its own could catch.
 
+## The agentserver↔consumer NATS contract
+
+Three values must agree between `agentserver.config.nats.*` and
+`consumer.config.nats.*` / `consumer.config.backpressure.*` for a message to
+travel from the agentserver to the consumer at all — the stream name, the
+subject prefix, and the backpressure subject. `templates/guards.yaml` checks
+all three by equality and `fail`s the render on any mismatch, including the
+likely real-world one: one side left at its chart default while only the
+other is overridden (e.g. `--set consumer.config.nats.subjectPrefix=telemetry`
+with nothing said about the agentserver side). Without this guard that
+combination renders and installs cleanly, every pod reports Ready, and
+telemetry silently accumulates in the stream until it prunes at `max_bytes` —
+nothing else in the pipeline would have named the cause.
+
+The backpressure-subject check only runs while
+`consumer.config.backpressure.enabled` is `true` (the chart default): with it
+`false` the consumer publishes no leases at all, which is a deliberate
+degraded state, not a mismatch to fail on.
+
+## Loki / VictoriaMetrics URL agreement
+
+`apiserver.config.upstreams.loki.url` (what the log API reads) and
+`consumer.config.loki.url` (what the consumer writes) must be the same
+instance, or the log UI returns an empty result set while `/readyz` still
+reports `loki: ok` — readiness only checks that the configured URL answers,
+never that it's the URL anything writes to. The same applies to
+`apiserver.config.upstreams.victoriametrics.url` /
+`consumer.config.victoriaMetrics.url`. `templates/guards.yaml` fails the
+render on either pair differing, in either direction — including exactly one
+side left empty while the other is set, which is worse than two different
+non-empty values, since one component then looks fully configured and
+healthy while the other never receives anything to serve. Both sides empty is
+deliberately not guarded: that is the legitimate "this install does not use
+Loki/VictoriaMetrics at all" state, and neither chart defaults either URL, so
+a stock install starts in exactly that state.
+
 ## One release per namespace
 
 `valkey.serviceName` (default `kubexa-valkey`) is a **static** name, not
