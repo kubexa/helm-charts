@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.3.0
+version: 0.3.1
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -33,7 +33,10 @@ dependencies:
     condition: nats.enabled
   - name: kubexa-agentserver
     alias: agentserver
-    version: "0.2.0"
+    # 0.2.1 lifts nginx's client_max_body_size off the agent stream. On 0.2.0
+    # every agent reconnects once it has sent 1 MiB in total -- losslessly,
+    # but constantly.
+    version: "0.2.1"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
