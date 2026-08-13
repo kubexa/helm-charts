@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.4.4
+version: 0.4.5
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -66,6 +66,12 @@ dependencies:
     # claims / and the apiserver's claims /api/v1 on ONE host, which is what
     # lets the image be built once with a relative API base and installed
     # anywhere.
-    version: "0.1.1"
+    #
+    # 0.1.2 carries the notification inbox: the bell, the panel and the live
+    # badge in both shells, plus the service worker that can display a web
+    # push. Pinned in the same umbrella release as apiserver 0.4.1 on purpose
+    # -- 0.4.1 is what first PRODUCES a notification, and a producer with no
+    # surface to show it is not testable.
+    version: "0.1.2"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
