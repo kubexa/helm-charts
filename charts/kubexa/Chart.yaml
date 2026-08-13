@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.4.0
+version: 0.4.1
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -20,11 +20,16 @@ dependencies:
   # with values; it re-templates none of their objects.
   - name: kubexa-apiserver
     alias: apiserver
-    # 0.3.0 is the first version that carries the Postgres password env seams
-    # (secrets.postgresAppPassword / postgresUsersPassword). On 0.2.0 the only
-    # way to deliver those passwords was a hand-written config Secret or a
-    # --set on the command line.
-    version: "0.3.0"
+    # 0.3.1 defaults to image 0.3.1, which is the first that accepts a saved
+    # log-table column name containing a dash or a dot (correlation-id,
+    # http.status). Before it the column picker offered names the save endpoint
+    # answered 400 for.
+    #
+    # 0.3.0 remains the floor for anything else: it is the first version that
+    # carries the Postgres password env seams (secrets.postgresAppPassword /
+    # postgresUsersPassword). On 0.2.0 the only way to deliver those passwords
+    # was a hand-written config Secret or a --set on the command line.
+    version: "0.3.1"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -33,10 +38,14 @@ dependencies:
     condition: nats.enabled
   - name: kubexa-agentserver
     alias: agentserver
-    # 0.2.1 lifts nginx's client_max_body_size off the agent stream. On 0.2.0
-    # every agent reconnects once it has sent 1 MiB in total -- losslessly,
-    # but constantly.
-    version: "0.2.1"
+    # 0.2.2 changes no template: it exists only to move appVersion to 0.3.1 so
+    # both processes run one image version in the namespace. A new default
+    # image cannot ship under an already-published chart version.
+    #
+    # 0.2.1 is the real floor -- it lifts nginx's client_max_body_size off the
+    # agent stream. On 0.2.0 every agent reconnects once it has sent 1 MiB in
+    # total: losslessly, but constantly.
+    version: "0.2.2"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
