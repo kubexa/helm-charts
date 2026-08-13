@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.4.3
+version: 0.4.4
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -26,7 +26,13 @@ dependencies:
     # way to deliver a VAPID private key was to hand-write the config Secret --
     # which is also the wrong place for it, since the private key must never
     # be rendered into config.
-    version: "0.4.0"
+    #
+    # 0.4.1 changes no template either: it moves appVersion to 0.4.0, the first
+    # image that actually CONTAINS the web push seam and the cluster-silence
+    # evaluator. On 0.4.0 the chart rendered every flag correctly and deployed
+    # a 0.3.1 binary that had neither -- no crash, no error, just
+    # {"enabled":false} and notifications that never arrive.
+    version: "0.4.1"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -39,10 +45,14 @@ dependencies:
     # both processes run one image version in the namespace. A new default
     # image cannot ship under an already-published chart version.
     #
+    # 0.2.3 does the same again for image 0.4.0 -- the apiserver chart moved
+    # first, and one of the two moving alone is exactly what that rule exists
+    # to prevent.
+    #
     # 0.2.1 is the real floor -- it lifts nginx's client_max_body_size off the
     # agent stream. On 0.2.0 every agent reconnects once it has sent 1 MiB in
     # total: losslessly, but constantly.
-    version: "0.2.2"
+    version: "0.2.3"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
