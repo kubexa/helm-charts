@@ -151,6 +151,25 @@ apiserver:
         # address from that same value and warns if the two ever drift apart,
         # rather than comparing this literal against a second copy of itself.
         controlAddr: kubexa-agentserver-internal:50052
+    # Same-origin removes CORS from the BROWSER's path, but not from the
+    # server's: internal/config/apiserver.go's ApplyAPIServerDefaults turns an
+    # empty list into ["*"], so leaving this unset serves
+    # Access-Control-Allow-Origin: * to every caller. Set it to the shared
+    # origin -- scheme included -- e.g. https://kubexa.example.com.
+    corsAllowedOrigins: []
+  ingress:
+    enabled: false
+    className: nginx
+    # The SAME host as app.ingress.host. nginx merges Ingress objects that
+    # share a host and resolves by longest prefix, so this path wins over the
+    # app's "/" without either chart knowing the other's Service name.
+    host: ""
+    path: /api/v1
+    pathType: Prefix
+    tls:
+      # Deliberately off: app.ingress owns TLS for the shared host.
+      enabled: false
+      secretName: ""
   secrets:
     # By reference, not by value: the bundled Valkey generates its password
     # into its own Secret at render time, and a generated value cannot travel
@@ -158,6 +177,30 @@ apiserver:
     redisPasswordSecret:
       name: kubexa-valkey-auth
       key: password
+
+# ─── web UI ─────────────────────────────────────────────────────────────────
+#
+# The SAME hostname the apiserver is exposed on, above. That is not a
+# convenience: the image is built once against the relative base /api/v1, and
+# the service worker's rules for /api (navigateFallbackDenylist, NetworkOnly in
+# vite.config.ts) are path-based. Split the two across hostnames and the app
+# starts serving index.html for API navigations, caching API responses, and
+# making cross-origin requests that need CORS.
+app:
+  enabled: true
+  ingress:
+    enabled: false
+    className: nginx
+    # Set this and apiserver.ingress.host to the same value.
+    host: ""
+    path: /
+    pathType: Prefix
+    tls:
+      # The app Ingress owns TLS for the shared host; the apiserver's is left
+      # off above. Two Ingress objects declaring TLS for one host make
+      # cert-manager open two Certificates against a single Secret.
+      enabled: false
+      secretName: ""
 
 agentserver:
   enabled: true

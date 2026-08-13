@@ -54,6 +54,47 @@ jobs:
             --set apiserver.config.upstreams.agentserver.controlAddr=agentserver.example.com:50052 \
             > /dev/null
 
+      # Asserts both that the render FAILED and that it failed with the
+      # guard's OWN message, so an unrelated typo elsewhere in the chart can't
+      # be misread as this guard firing.
+      - name: refuses the apiserver claiming / on the app's host
+        run: |
+          out=$(helm template kubexa $CHART_PATH \
+            --set apiserver.config.upstreams.postgres.app.host=pg.example.com \
+            --set apiserver.config.upstreams.postgres.users.host=pg.example.com \
+            --set app.ingress.enabled=true --set app.ingress.host=kubexa.example.com \
+            --set apiserver.ingress.enabled=true --set apiserver.ingress.host=kubexa.example.com \
+            --set apiserver.ingress.path=/ 2>&1) && status=0 || status=$?
+          if [ "$status" -eq 0 ]; then
+            echo "the apiserver claiming / on the app's host rendered; the guard is gone" >&2
+            exit 1
+          fi
+          if ! grep -q "apiserver.ingress.path is" <<<"$out"; then
+            echo "render failed, but not because of the path guard. Got:" >&2
+            echo "$out" >&2
+            exit 1
+          fi
+
+      # Same shape as the guard above, for the TLS pair.
+      - name: refuses two TLS declarations for one host
+        run: |
+          out=$(helm template kubexa $CHART_PATH \
+            --set apiserver.config.upstreams.postgres.app.host=pg.example.com \
+            --set apiserver.config.upstreams.postgres.users.host=pg.example.com \
+            --set app.ingress.enabled=true --set app.ingress.host=kubexa.example.com \
+            --set app.ingress.tls.enabled=true --set app.ingress.tls.secretName=kubexa-tls \
+            --set apiserver.ingress.enabled=true --set apiserver.ingress.host=kubexa.example.com \
+            --set apiserver.ingress.tls.enabled=true --set apiserver.ingress.tls.secretName=kubexa-tls 2>&1) && status=0 || status=$?
+          if [ "$status" -eq 0 ]; then
+            echo "two TLS declarations for one host rendered; the guard is gone" >&2
+            exit 1
+          fi
+          if ! grep -q "BOTH true for host" <<<"$out"; then
+            echo "render failed, but not because of the TLS guard. Got:" >&2
+            echo "$out" >&2
+            exit 1
+          fi
+
       - name: Get chart name and version
         id: chart_version
         run: |

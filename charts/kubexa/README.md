@@ -1,9 +1,10 @@
 # kubexa
 
 The Kubexa umbrella chart: one Helm release for the whole platform. That
-means `kubexa-apiserver`, `kubexa-agentserver` and `kubexa-consumer`, and the
-infrastructure they need that isn't assumed to already exist in your cluster
-— a bundled Valkey and a bundled NATS JetStream. Loki and VictoriaMetrics are
+means `kubexa-apiserver`, `kubexa-agentserver`, `kubexa-consumer` and
+`kubexa-app` (the web UI), and the infrastructure they need that isn't
+assumed to already exist in your cluster — a bundled Valkey and a bundled
+NATS JetStream. Loki and VictoriaMetrics are
 still not part of this release: they're the consumer's write destinations,
 not a dependency this chart can meaningfully default, so point
 `consumer.config.loki.url` / `consumer.config.victoriaMetrics.url` (and the
@@ -26,8 +27,8 @@ that last one. Installing the component charts directly is fully supported;
 this chart is a convenience, not the only supported path.
 
 Both paths converge on the same rendered objects for each component chart —
-this chart passes `apiserver.*` / `agentserver.*` / `consumer.*` straight
-through as those charts' own values, it does not reinterpret them.
+this chart passes `apiserver.*` / `agentserver.*` / `consumer.*` / `app.*`
+straight through as those charts' own values, it does not reinterpret them.
 
 ## Quick start
 
@@ -57,11 +58,12 @@ match.
 | `apiserver.enabled` | `true` | The `kubexa-apiserver` dependency is skipped entirely (it's the chart's `condition`). |
 | `agentserver.enabled` | `true` | The `kubexa-agentserver` dependency is skipped entirely. Use this if you're installing it separately (e.g. with its own ingress) or not running it at all yet. |
 | `consumer.enabled` | `true` | The `kubexa-consumer` dependency is skipped entirely. Telemetry then accumulates in the NATS stream unread until a consumer (bundled or otherwise) pulls from it. |
+| `app.enabled` | `true` | The `kubexa-app` dependency is skipped entirely. Use this if you're serving the web UI some other way, or not yet. |
 
-Every other key under `apiserver.*` / `agentserver.*` / `consumer.*` is
-passed straight through to that chart's own values — see its README (linked
-below) for the full surface, including replicas, persistence, ingress,
-probes, and secret handling.
+Every other key under `apiserver.*` / `agentserver.*` / `consumer.*` / `app.*`
+is passed straight through to that chart's own values — see its README
+(linked below) for the full surface, including replicas, persistence,
+ingress, probes, and secret handling.
 
 ## Bring your own Redis
 
@@ -224,6 +226,47 @@ deliberately not guarded: that is the legitimate "this install does not use
 Loki/VictoriaMetrics at all" state, and neither chart defaults either URL, so
 a stock install starts in exactly that state.
 
+## Bundling the web UI
+
+`app.enabled` (default `true`) brings in the `kubexa-app` chart — the React
+SPA, served by nginx. A bundled install exposes the UI and the API on **one
+hostname**: the app's Ingress claims `/` and the apiserver's claims
+`/api/v1`, both routed by the same nginx controller. That is not a
+convenience — the image is built once against the relative API base
+`/api/v1`, and the service worker's `/api` rules (`navigateFallbackDenylist`,
+`NetworkOnly` in `vite.config.ts`) are path-based. Split the two across
+hostnames and the app starts serving `index.html` for API navigations,
+caching API responses, and making cross-origin requests that need CORS.
+
+The three values an operator sets for a bundled install with Ingress:
+
+```bash
+--set app.ingress.enabled=true \
+--set app.ingress.host=kubexa.example.com \
+--set apiserver.ingress.enabled=true \
+--set apiserver.ingress.host=kubexa.example.com \
+--set apiserver.config.corsAllowedOrigins[0]=https://kubexa.example.com
+```
+
+`app.ingress.host` and `apiserver.ingress.host` must be the same value.
+`apiserver.config.corsAllowedOrigins` matters even same-origin: same-origin
+removes CORS from the browser's path, but not the server's —
+`internal/config/apiserver.go`'s `ApplyAPIServerDefaults` turns an empty list
+into `["*"]`, so leaving it unset serves `Access-Control-Allow-Origin: *` to
+every caller.
+
+The **app Ingress owns TLS** for the shared host — `apiserver.ingress.tls.enabled`
+is left `false` by default. Two Ingress objects declaring TLS for one host
+make cert-manager open two Certificates against a single Secret, and
+`templates/guards.yaml` fails the render if both are turned on for the same
+host. It also fails the render if `apiserver.ingress.path` is left at `/`
+while both Ingresses are enabled on the same host: nginx resolves a shared
+host by longest prefix, so `apiserver.ingress.path` needs to stay `/api/v1`
+(the default) for the apiserver's rule to win over the app's `/`.
+
+Set `app.enabled=false` to skip the `kubexa-app` dependency entirely — e.g.
+if you're serving the UI some other way, or not yet.
+
 ## One release per namespace
 
 `valkey.serviceName` (default `kubexa-valkey`) is a **static** name, not
@@ -247,13 +290,14 @@ today.
 
 ## Component documentation
 
-Everything under `apiserver.*` / `agentserver.*` / `consumer.*` in this
-chart's `values.yaml` is that component chart's own values surface,
+Everything under `apiserver.*` / `agentserver.*` / `consumer.*` / `app.*` in
+this chart's `values.yaml` is that component chart's own values surface,
 unmodified. See:
 
 - [`kubexa-apiserver`'s README](https://github.com/kubexa/kubexa-backend/tree/main/helm/kubexa-apiserver)
 - [`kubexa-agentserver`'s README](https://github.com/kubexa/kubexa-backend/tree/main/helm/kubexa-agentserver)
 - [`kubexa-consumer`'s README](https://github.com/kubexa/kubexa-consumer/tree/main/helm/kubexa-consumer)
+- [`kubexa-app`'s README](https://github.com/kubexa/kubexa-app/tree/main/helm/kubexa-app)
 
 for the full field reference, upgrade behavior, probe semantics, and secret
 handling of each — this chart does not repeat any of it.
