@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.4.2
+version: 0.4.3
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -20,16 +20,13 @@ dependencies:
   # with values; it re-templates none of their objects.
   - name: kubexa-apiserver
     alias: apiserver
-    # 0.3.1 defaults to image 0.3.1, which is the first that accepts a saved
-    # log-table column name containing a dash or a dot (correlation-id,
-    # http.status). Before it the column picker offered names the save endpoint
-    # answered 400 for.
-    #
-    # 0.3.0 remains the floor for anything else: it is the first version that
-    # carries the Postgres password env seams (secrets.postgresAppPassword /
-    # postgresUsersPassword). On 0.2.0 the only way to deliver those passwords
-    # was a hand-written config Secret or a --set on the command line.
-    version: "0.3.1"
+    # 0.4.0 is the first chart that can turn web push on at all: it adds the
+    # notifications.webPush config block and the
+    # KUBEXA_APISERVER_WEBPUSH_VAPID_PRIVATE_KEY env seam. Before it the only
+    # way to deliver a VAPID private key was to hand-write the config Secret --
+    # which is also the wrong place for it, since the private key must never
+    # be rendered into config.
+    version: "0.4.0"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats

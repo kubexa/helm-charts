@@ -157,6 +157,16 @@ apiserver:
     # Access-Control-Allow-Origin: * to every caller. Set it to the shared
     # origin -- scheme included -- e.g. https://kubexa.example.com.
     corsAllowedOrigins: []
+    # Off by default: an install where the operator sets nothing stays inert,
+    # the same as before this chart could turn web push on at all. Set
+    # enabled: true and fill in vapidPublicKey/subject together with
+    # secrets.webPushVapidPrivateKey below -- the public key without the
+    # private one (or vice versa) leaves the feature half-wired.
+    notifications:
+      webPush:
+        enabled: false
+        vapidPublicKey: ""
+        subject: ""
   ingress:
     enabled: false
     className: nginx
@@ -177,6 +187,10 @@ apiserver:
     redisPasswordSecret:
       name: kubexa-valkey-auth
       key: password
+    # Never rendered into config, only this Secret key -- see
+    # config.notifications.webPush above. Empty by default, same as every
+    # other credential in this file; it never appears in this repo by value.
+    webPushVapidPrivateKey: ""
 
 # ─── web UI ─────────────────────────────────────────────────────────────────
 #
