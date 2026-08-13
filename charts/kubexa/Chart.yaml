@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.4.1
+version: 0.4.2
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -59,6 +59,6 @@ dependencies:
     # claims / and the apiserver's claims /api/v1 on ONE host, which is what
     # lets the image be built once with a relative API base and installed
     # anywhere.
-    version: "0.1.0"
+    version: "0.1.1"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
