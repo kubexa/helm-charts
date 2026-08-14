@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.1
+version: 0.5.2
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -103,6 +103,12 @@ dependencies:
     # chart or the apiserver's has to change alongside it -- the cell follows
     # the vapid-public-key endpoint's own answer, so on a deployment with no
     # VAPID pair configured it correctly stays disabled.
-    version: "0.1.4"
+    #
+    # 0.1.5: appVersion 0.2.2 ships the four PWA icons the manifest has always
+    # declared and never contained -- without a valid one the app cannot be
+    # installed, and on iOS an installed app is the only thing that receives
+    # web push. It also names the browser's own reason when a subscription is
+    # refused rather than showing one generic error.
+    version: "0.1.5"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
