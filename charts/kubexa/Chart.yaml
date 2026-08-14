@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.4.6
+version: 0.5.0
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -37,7 +37,13 @@ dependencies:
     # image whose log explorer asks Loki to separate structured metadata. On
     # 0.4.0 the agent_id/agent_version columns render blank -- the values were
     # in Loki the whole time, folded into the stream labels.
-    version: "0.4.2"
+    #
+    # 0.4.3 changes no template either: appVersion moves to 0.5.0, the first
+    # image with the per-cluster ingestion health endpoint and its RBAC
+    # migration (0065). Apply 0065 before the pod restarts -- role grants
+    # load once at boot, so a pod started before the migration 403s the new
+    # route while telling the user they have the permission.
+    version: "0.4.3"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -59,12 +65,21 @@ dependencies:
     # total: losslessly, but constantly.
     #
     # 0.2.4 does it a third time, for image 0.4.1.
-    version: "0.2.4"
+    #
+    # 0.2.5 does it a fourth time, for image 0.5.0 -- the agentserver's own
+    # code did not change in this release; the chart moves only to keep both
+    # processes on one image version in the namespace.
+    version: "0.2.5"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
     alias: consumer
-    version: "0.1.0"
+    # 0.1.1 changes no template: appVersion moves to 0.2.0, the first image
+    # whose ingestion metrics carry a cluster_id label and rename the
+    # namespace label to tenant_namespace. Any dashboard or alert reading the
+    # old series breaks at the deployment instant -- expected, and covered
+    # in the deployments runbook.
+    version: "0.1.1"
     repository: oci://ghcr.io/kubexa/charts
     condition: consumer.enabled
   - name: kubexa-app
@@ -79,6 +94,9 @@ dependencies:
     # push. Pinned in the same umbrella release as apiserver 0.4.1 on purpose
     # -- 0.4.1 is what first PRODUCES a notification, and a producer with no
     # surface to show it is not testable.
-    version: "0.1.2"
+    #
+    # 0.1.3 changes no template: appVersion moves to 0.2.0, the first image
+    # with the cluster ingestion health tab.
+    version: "0.1.3"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
