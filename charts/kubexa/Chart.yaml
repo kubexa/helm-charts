@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.4
+version: 0.5.5
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -49,7 +49,14 @@ dependencies:
     # became a real consequence rather than a cosmetic one on 2026-08-14, when
     # web push went live: the notification is now an OS-level popup on a device
     # belonging to someone who has been shut out of the platform.
-    version: "0.4.4"
+    #
+    # 0.4.5 carries image 0.5.2, which holds a web push for an hour instead of
+    # 60 seconds. Below that, a notification sent while the recipient's browser
+    # was closed was dropped by the push service with nothing to show for it --
+    # 2xx on the send, no log line, no delivery. First OS-level delivery on
+    # this deployment was observed 2026-08-15 on 0.5.1, both silence and
+    # recovery edges.
+    version: "0.4.5"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
