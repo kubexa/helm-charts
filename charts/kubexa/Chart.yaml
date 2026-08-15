@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.6
+version: 0.5.7
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -62,7 +62,13 @@ dependencies:
     # separate release in deployments/vmalert -- deliberately not bundled here,
     # because it is optional, it needs a datasource this chart does not own,
     # and it mounts a Secret key by name.
-    version: "0.4.6"
+    #
+    # 0.4.7 carries image 0.5.4 and migration 0068: the reaper that resolves
+    # alert_state rows left stuck at 'firing' when vmalert restarts. It is
+    # INERT until the KubexaAlertPipelineHeartbeat rule in deployments/vmalert
+    # is posting -- without that row it cannot tell a cleared alert from a dead
+    # sender, and declines to resolve anything.
+    version: "0.4.7"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
