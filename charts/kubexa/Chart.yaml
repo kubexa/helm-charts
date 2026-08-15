@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.2
+version: 0.5.3
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -109,6 +109,14 @@ dependencies:
     # installed, and on iOS an installed app is the only thing that receives
     # web push. It also names the browser's own reason when a subscription is
     # refused rather than showing one generic error.
-    version: "0.1.5"
+    #
+    # 0.1.6: appVersion 0.2.3 puts the browser-push card above the preference
+    # matrix. The card registers this device with the browser's push service;
+    # the matrix only records intent, so a web_push cell flipped while the
+    # card is off stores a preference nothing can deliver. With the gate
+    # rendered below the thing it gates, both the user and the assistant
+    # spent an hour toggling matrix cells while debugging why no subscription
+    # ever reached the server.
+    version: "0.1.6"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
