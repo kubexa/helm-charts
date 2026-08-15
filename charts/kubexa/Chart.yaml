@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.5
+version: 0.5.6
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -56,7 +56,13 @@ dependencies:
     # 2xx on the send, no log line, no delivery. First OS-level delivery on
     # this deployment was observed 2026-08-15 on 0.5.1, both silence and
     # recovery edges.
-    version: "0.4.5"
+    #
+    # 0.4.6 carries image 0.5.3, the first with the vmalert alert sink and its
+    # two migrations (0066 alert RBAC, 0067 alert_state). vmalert itself is a
+    # separate release in deployments/vmalert -- deliberately not bundled here,
+    # because it is optional, it needs a datasource this chart does not own,
+    # and it mounts a Secret key by name.
+    version: "0.4.6"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
