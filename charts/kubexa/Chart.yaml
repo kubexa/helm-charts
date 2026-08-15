@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.3
+version: 0.5.4
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -43,7 +43,13 @@ dependencies:
     # migration (0065). Apply 0065 before the pod restarts -- role grants
     # load once at boot, so a pod started before the migration 403s the new
     # route while telling the user they have the permission.
-    version: "0.4.3"
+    #
+    # 0.4.4 carries image 0.5.1, the first one that does not send a
+    # cluster-silence notification to a suspended or deleted account. That
+    # became a real consequence rather than a cosmetic one on 2026-08-14, when
+    # web push went live: the notification is now an OS-level popup on a device
+    # belonging to someone who has been shut out of the platform.
+    version: "0.4.4"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
