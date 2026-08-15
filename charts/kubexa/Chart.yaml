@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.7
+version: 0.5.8
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -68,7 +68,13 @@ dependencies:
     # INERT until the KubexaAlertPipelineHeartbeat rule in deployments/vmalert
     # is posting -- without that row it cannot tell a cleared alert from a dead
     # sender, and declines to resolve anything.
-    version: "0.4.7"
+    #
+    # 0.4.8 carries image 0.5.5, which stops two notifications from saying
+    # something untrue: a first sighting written 'resolved' announced as a
+    # recovery (one spurious "Resolved: Alert pipeline is not reporting" per
+    # fresh deployment), and a resolved body that repeated the firing
+    # description under a "Resolved:" title. No migration.
+    version: "0.4.8"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -142,6 +148,13 @@ dependencies:
     # rendered below the thing it gates, both the user and the assistant
     # spent an hour toggling matrix cells while debugging why no subscription
     # ever reached the server.
-    version: "0.1.6"
+    #
+    # 0.1.7: appVersion 0.2.4 is the first build whose service worker can act
+    # on a notification click at all. Before it the click raised the browser
+    # and did nothing -- navigate() rejects on a client this worker does not
+    # control, and the rejection skipped the openWindow fallback. Paired with
+    # apiserver 0.4.8 on purpose: that release fixes what the notifications
+    # SAY, this one fixes what happens when you touch them.
+    version: "0.1.7"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
