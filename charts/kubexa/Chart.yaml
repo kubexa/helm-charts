@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.9
+version: 0.5.10
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -74,7 +74,16 @@ dependencies:
     # recovery (one spurious "Resolved: Alert pipeline is not reporting" per
     # fresh deployment), and a resolved body that repeated the firing
     # description under a "Resolved:" title. No migration.
-    version: "0.4.8"
+    #
+    # 0.4.9 carries image 0.5.6, the first that lets a recipient read the alert
+    # they were notified about: GET /api/v1/alerts and /{fingerprint} behind a
+    # new alert:read permission, and a notification link pointing at
+    # /alert/{fingerprint} instead of /. Three migrations (0069 annotations +
+    # assumed, 0070 alert:read and the Alerts menu row, 0071 annotations_at),
+    # all applied by the migrate initContainer. Must move together with app
+    # 0.1.9: this chart seeds the menu row and serves the routes, that one
+    # carries the screens they feed.
+    version: "0.4.9"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -161,6 +170,14 @@ dependencies:
     # no producer sets `icon` and the browser does not fall back to the site's
     # icon the way the code assumed. Frontend-only -- it needs no apiserver
     # version, though a producer may later override the default per payload.
-    version: "0.1.8"
+    #
+    # 0.1.9: appVersion 0.2.6 is the first build that renders an alert
+    # notification as anything but the literal string `alert.firing`, and the
+    # first with the alert list and detail screens its link resolves to. Unlike
+    # every app bump above it, this one is NOT frontend-only in effect: the
+    # screens call routes that only apiserver 0.4.9 serves, and the menu row
+    # that reaches them is seeded by that release's migration. The two move
+    # together or the release is broken in one direction or the other.
+    version: "0.1.9"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
