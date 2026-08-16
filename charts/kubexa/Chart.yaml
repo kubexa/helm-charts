@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.10
+version: 0.5.11
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -178,6 +178,14 @@ dependencies:
     # screens call routes that only apiserver 0.4.9 serves, and the menu row
     # that reaches them is seeded by that release's migration. The two move
     # together or the release is broken in one direction or the other.
-    version: "0.1.9"
+    #
+    # 0.1.10: appVersion 0.2.7 is the first build whose alert LIST says what an
+    # alert is about. 0.1.9 shipped the screens with the row's second line
+    # rendering every label as `k=v`, truncated to one line, so on this very
+    # deployment KubexaCertificateExpiringSoon -- twenty-odd cert-manager scrape
+    # labels -- displayed its own heading back and nothing else. Frontend-only
+    # this time: `annotations` were in the apiserver's list response all along,
+    # so apiserver stays at 0.4.9.
+    version: "0.1.10"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
