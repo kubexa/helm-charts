@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.13
+version: 0.5.14
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -109,7 +109,19 @@ dependencies:
     # 0.2.5 does it a fourth time, for image 0.5.0 -- the agentserver's own
     # code did not change in this release; the chart moves only to keep both
     # processes on one image version in the namespace.
-    version: "0.2.5"
+    #
+    # 0.2.6 is the first one in this list since 0.2.1 that changes a template,
+    # and it is the second half of the same defect 0.2.1 fixed. 0.2.1 lifted
+    # nginx's SIZE cap off the agent stream; 0.2.6 lifts its TIME cap.
+    # grpc_read_timeout (60s by default) counts from the last frame nginx read
+    # from the UPSTREAM -- gateway->agent -- and the gateway sends nothing
+    # periodic that way, so every stream died 60s after the last config push:
+    # a session lifetime of exactly 90 seconds on this deployment, forever,
+    # with nginx logging "upstream timed out while reading upstream" and the
+    # agent seeing only RST_STREAM INTERNAL_ERROR. The agent's own heartbeat
+    # cannot reset that timer -- it travels the other direction. appVersion is
+    # unchanged: no image is needed for this.
+    version: "0.2.6"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
