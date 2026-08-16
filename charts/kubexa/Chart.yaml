@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.12
+version: 0.5.13
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -196,6 +196,19 @@ dependencies:
     # `truncate` never got a chance to engage. The DETAIL page ran its label
     # values off the side for the sibling reason, a flex item refusing to
     # shrink below its own content. Frontend-only; apiserver stays at 0.4.9.
-    version: "0.1.11"
+    #
+    # 0.1.12: appVersion 0.2.9 carries two things. The service worker now calls
+    # clients.claim() on activate: without it a newly activated worker controls
+    # nothing -- not even the page whose load installed it -- and
+    # notificationclick's client.navigate() is permitted only on a controlled
+    # client, so a notification click opened a second tab beside the app
+    # instead of steering the one already open. Measured on this deployment:
+    # controller null on an `activated` worker with nothing waiting. Note this
+    # is NOT established as the fix for the intermittent click failure (backlog
+    # 1b.2); it closes one source of the variance. Second: the alert list
+    # stacks into a card below sm, where the one-line row spent its width on
+    # the badge and the timestamp and left the summary a few characters.
+    # Frontend-only; apiserver stays at 0.4.9.
+    version: "0.1.12"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
