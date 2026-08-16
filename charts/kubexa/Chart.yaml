@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.11
+version: 0.5.12
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -186,6 +186,16 @@ dependencies:
     # labels -- displayed its own heading back and nothing else. Frontend-only
     # this time: `annotations` were in the apiserver's list response all along,
     # so apiserver stays at 0.4.9.
-    version: "0.1.10"
+    #
+    # 0.1.11: appVersion 0.2.8 fixes two overflow defects that only using the
+    # 0.2.7 screens against this cluster's own alerts could find. The alert
+    # LIST scrolled sideways and carried its "Updated" column off the screen:
+    # the row is a grid item, a grid item's automatic minimum is its
+    # min-content, and the min-content of nowrap text is the entire string --
+    # so the row was born as wide as the longest label line and the inner
+    # `truncate` never got a chance to engage. The DETAIL page ran its label
+    # values off the side for the sibling reason, a flex item refusing to
+    # shrink below its own content. Frontend-only; apiserver stays at 0.4.9.
+    version: "0.1.11"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
