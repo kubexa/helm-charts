@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.17
+version: 0.5.18
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -299,6 +299,21 @@ dependencies:
     # link. This one does NOT stay at the old apiserver -- it must move
     # together with apiserver 0.4.10, which serves the delete routes and seeds
     # the permission they are gated on.
-    version: "0.1.13"
+    #
+    # 0.1.14: appVersion 0.2.11 keeps the notification centre inside a phone
+    # screen. 0.1.13 shipped it overflowing to the right, with the read/unread
+    # badge and the Delete button off the edge -- found by using it on a phone,
+    # which is the only way it could have been found: jsdom has no layout
+    # engine, so every check the feature carried asserted markup and none of
+    # them could see geometry. Three defects of one family, each measured in a
+    # real engine before and after. A card widened by its own headline: a grid
+    # item's automatic minimum is its min-content, the min-content of an
+    # unbreakable token is the whole token, and no layer of the card carried
+    # `min-w-0`. A table returning at `sm` while the shell stays a phone shell
+    # until `md`, putting a ~750px five-column table inside a 640px viewport.
+    # And a bell row whose box fitted while its text painted past it, which
+    # getBoundingClientRect cannot see and only scrollWidth reports.
+    # Frontend-only; the apiserver is untouched.
+    version: "0.1.14"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
