@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.16
+version: 0.5.17
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -96,7 +96,13 @@ dependencies:
     # before the pod starts, because role grants load once at boot. Must move
     # together with app 0.1.13: this chart serves the routes, that one carries
     # the page that calls them.
-    version: "0.4.10"
+    #
+    # 0.4.11 carries no apiserver code change whatsoever. appVersion moves to
+    # 0.5.8 only so both processes in the namespace run one image version --
+    # all of 0.5.8's work is in the agentserver's delivery buffer, described
+    # under agentserver 0.2.8 below. Skipping a bump like this is exactly what
+    # produced the 0.5.0-vs-0.5.6 drift the 0.4.10 note above had to end.
+    version: "0.4.11"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -157,7 +163,31 @@ dependencies:
     # session registry kept only the LAST unregister callback of the three
     # registered, so the delivery tracker's session purge never ran and every
     # ended session leaked, and the heartbeat totals leaked with it.
-    version: "0.2.7"
+    #
+    # 0.2.8 changes no template: appVersion moves to 0.5.8. Install this
+    # INSTEAD of 0.2.7, not after it -- 0.5.7 shipped the at-least-once path
+    # with two defects that neither the test suite nor a quiet cluster
+    # reaches, and both were found on this deployment.
+    #
+    # First, the publish worker's dequeue blocked until an item arrived, so
+    # the same goroutine that owns the flush timer could sit in it
+    # indefinitely. Under a real agent's load that starved the timer, nothing
+    # was ever published, the tracker's ack never came, and the pipeline
+    # deadlocked on its first live run on 2026-08-17 -- the agent had to be
+    # rolled back to 0.7.0 the same day. Second, the shutdown drain called
+    # FlushAll on the coalescer and never touched the queue, so every item
+    # still queued at pod termination was left for the agent to replay. That
+    # second one was invisible until the first was fixed: bounding the dequeue
+    # is what opened the window in which the queue is unwatched.
+    #
+    # 0.5.8 also makes the outcome rule total: every buffer item now reaches
+    # exactly one of published/dropped/abandoned and exactly one of queue
+    # Ack/Nack. Zero outcomes stalled that agent for the rest of its session;
+    # two meant the gateway both claimed delivery and kept the data.
+    #
+    # The 0.2.7 note below still applies in full, including the order rule:
+    # install this BEFORE moving any agent to 0.7.1.
+    version: "0.2.8"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
