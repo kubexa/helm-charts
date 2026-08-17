@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.15
+version: 0.5.16
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -83,7 +83,20 @@ dependencies:
     # all applied by the migrate initContainer. Must move together with app
     # 0.1.9: this chart seeds the menu row and serves the routes, that one
     # carries the screens they feed.
-    version: "0.4.9"
+    #
+    # 0.4.10 carries image 0.5.7, which the agentserver has run since chart
+    # 0.2.7 -- so this bump also ends a period where the namespace ran two
+    # different builds of one binary. New for the apiserver: the notification
+    # list gains read-state, type and date-range filters and a sort direction,
+    # and two hard-delete routes appear (DELETE /me/notifications/{id} and
+    # /me/notifications/read). The bulk route deletes READ rows only, by the
+    # statement's own definition rather than by a parameter, so no request can
+    # be shaped to remove an unread one. One migration, 0072, seeds
+    # notifications:delete_own and grants it to user and admin; it must land
+    # before the pod starts, because role grants load once at boot. Must move
+    # together with app 0.1.13: this chart serves the routes, that one carries
+    # the page that calls them.
+    version: "0.4.10"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -244,6 +257,18 @@ dependencies:
     # stacks into a card below sm, where the one-line row spent its width on
     # the badge and the timestamp and left the summary a few characters.
     # Frontend-only; apiserver stays at 0.4.9.
-    version: "0.1.12"
+    #
+    # 0.1.13: appVersion 0.2.10 adds the notification centre -- a full page
+    # listing every notification, filterable by read state, type and date
+    # range, sortable by date, with single and bulk delete. Deletes are hard,
+    # with no undo; the bulk control deletes read notifications only and
+    # honours the filters currently applied, so what the page shows is what it
+    # removes. The page has deliberately NO menu entry and no ModuleGate:
+    # notifications owns no `menu_items` row, so a gate would render it
+    # permanently "unavailable". It is reached from the bell panel's footer
+    # link. This one does NOT stay at the old apiserver -- it must move
+    # together with apiserver 0.4.10, which serves the delete routes and seeds
+    # the permission they are gated on.
+    version: "0.1.13"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
