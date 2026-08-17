@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.14
+version: 0.5.15
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -121,7 +121,30 @@ dependencies:
     # agent seeing only RST_STREAM INTERNAL_ERROR. The agent's own heartbeat
     # cannot reset that timer -- it travels the other direction. appVersion is
     # unchanged: no image is needed for this.
-    version: "0.2.6"
+    #
+    # 0.2.7 changes no template: appVersion moves to 0.5.7, the first image
+    # whose gateway acks an agent message only after every buffer item it
+    # fanned out to has actually reached NATS. Before it, the agent's only
+    # proof of delivery was stream.Send returning nil -- which means the bytes
+    # entered an HTTP/2 send buffer, not that anyone received them -- and the
+    # agent permanently deleted each batch on that proof, so every stream cut
+    # silently lost what was in flight while every loss counter read zero.
+    # Install this BEFORE moving any agent to 0.7.1: the agent only stops
+    # trusting Send when this gateway's handshake announces delivery_acks, so
+    # the reverse order holds every item to the agent's 10-minute cap and then
+    # replays it.
+    #
+    # Two things to know before upgrading. First, appVersion sat at 0.5.0
+    # through 0.2.5 and 0.2.6 while the apiserver above went to 0.5.6, so this
+    # namespace has been running two different builds of one binary; every
+    # gateway-side change since 0.5.0 -- per-(token, cluster) backpressure
+    # targeting, pushed agent ingest rules, the per-cluster ingestion health
+    # endpoint -- reaches a running agentserver for the first time here.
+    # Second, 0.5.7 fixes a defect that had never worked in production: the
+    # session registry kept only the LAST unregister callback of the three
+    # registered, so the delivery tracker's session purge never ran and every
+    # ended session leaked, and the heartbeat totals leaked with it.
+    version: "0.2.7"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
