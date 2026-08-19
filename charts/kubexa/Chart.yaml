@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.19
+version: 0.5.20
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -348,6 +348,22 @@ dependencies:
     # And a bell row whose box fitted while its text painted past it, which
     # getBoundingClientRect cannot see and only scrollWidth reports.
     # Frontend-only; the apiserver is untouched.
-    version: "0.1.14"
+    #
+    # 0.1.15: appVersion 0.2.12 is the release that actually settles backlog
+    # 1b.2 -- a notification click now routes the tab you already have open.
+    # 0.1.12's clients.claim() closed one source of the variance and was
+    # explicitly not claimed as the fix; this is the fix. The worker's only
+    # steering was client.navigate(), which the platform permits solely on a
+    # client this worker CONTROLS, and control is handed over at the next
+    # navigation -- so every tab open when a worker activates is unsteerable
+    # and every click on it fell through to openWindow and a second tab. The
+    # worker now asks the page over postMessage, which has no control
+    # requirement, and focuses only once the page has answered: a tab on an
+    # older build cannot answer, and a focused tab showing the wrong page is
+    # worse than a new window. What this cannot fix, and what to expect on
+    # this deployment: a tab still running 0.2.11 has no listener, so its
+    # FIRST click after the upgrade still opens a new tab. One reload onto
+    # 0.2.12 and it steers. Frontend-only; the apiserver is untouched.
+    version: "0.1.15"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
