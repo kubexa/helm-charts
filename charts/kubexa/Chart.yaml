@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.18
+version: 0.5.19
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -102,7 +102,30 @@ dependencies:
     # all of 0.5.8's work is in the agentserver's delivery buffer, described
     # under agentserver 0.2.8 below. Skipping a bump like this is exactly what
     # produced the 0.5.0-vs-0.5.6 drift the 0.4.10 note above had to end.
-    version: "0.4.11"
+    #
+    # 0.4.12 changes templates only and never appeared in an umbrella release:
+    # it adds the dead man's switch plumbing -- secrets.deadManURL delivered as
+    # an env var (never the config Secret, matching the VAPID key) and
+    # config.deadMan.{interval,timeout} rendered into apiserver.dead_man --
+    # while appVersion stayed at 0.5.8, so the flags reached a binary that
+    # reads neither.
+    #
+    # 0.4.13 changes no template: appVersion moves to 0.5.9, the first image
+    # that CONTAINS the switch. The apiserver pings an external check on an
+    # interval; the check alarms when the pings stop, which is the one failure
+    # mode this platform could not report on itself -- an apiserver that is
+    # down cannot tell anyone it is down.
+    #
+    # The URL is a SECRET and this chart's values are the wrong place for it:
+    # whoever holds it can keep the check green and suppress the alarm. On this
+    # deployment secrets.existingSecret is set, and on that path the apiserver
+    # chart disables templates/secret-keys.yaml wholesale -- so setting
+    # secrets.deadManURL here is silently ignored and the env var, being
+    # optional, leaves the pod healthy with the switch disarmed. Put the URL in
+    # the existing Secret under the key `dead-man-url`.
+    #
+    # Moves together with agentserver 0.2.9 below: one image, both processes.
+    version: "0.4.13"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -187,7 +210,18 @@ dependencies:
     #
     # The 0.2.7 note below still applies in full, including the order rule:
     # install this BEFORE moving any agent to 0.7.1.
-    version: "0.2.8"
+    #
+    # 0.2.9 changes no template: appVersion moves to 0.5.9, the first image
+    # whose heartbeat counters are keyed by (tenant, cluster) instead of by
+    # session id. Cloudflare cuts an agent's gRPC stream at about 150 seconds,
+    # so one agent process mints ~24 session ids an hour and every reconnect
+    # re-added that agent's whole cumulative total: on this deployment
+    # kubexa_gateway_agent_dropped_* read roughly 24x the truth -- 9
+    # rate-limited records reported as 9,878. Expect every one of those series
+    # to step DOWN to its real value at this upgrade. That is the fix landing,
+    # not a regression, and any alert thresholded on the inflated numbers has
+    # to be re-read afterwards.
+    version: "0.2.9"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
