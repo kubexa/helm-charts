@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.20
+version: 0.5.21
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -125,7 +125,30 @@ dependencies:
     # the existing Secret under the key `dead-man-url`.
     #
     # Moves together with agentserver 0.2.9 below: one image, both processes.
-    version: "0.4.13"
+    #
+    # 0.4.14 changes no template: appVersion moves to 0.5.10, the first image
+    # that serves the platform owner's ingestion view -- GET
+    # /api/v1/admin/ingestion (the fleet: which clusters are losing data) and
+    # its per-cluster detail. Both are gated on a new `ingestion:read_all`
+    # permission, which users migration 0073 seeds along with the `ingestion`
+    # module and the menu row that reaches the screens. The grant goes to admin
+    # only: superadmin arrives through `*:*`, and `user` is deliberately left
+    # out because the fleet answer crosses the tenant boundary, unlike the
+    # existing per-cluster cluster:ingestion_read.
+    #
+    # Migration 0073 must land before the pod starts. Role grants load once at
+    # boot, so an apiserver started ahead of it answers 403 on the new routes
+    # while the UI says the permission is held -- the migrate initContainer
+    # already orders this correctly.
+    #
+    # Moves with app 0.1.16, which carries the screens these routes feed, and
+    # with agentserver 0.2.10: one image, both processes.
+    #
+    # The 0.4.14 artifact published on 2026-08-20 06:11 UTC carried a note
+    # saying this image changed nothing on the apiserver. It was republished
+    # the same day with the text above; the templates and appVersion are
+    # identical in both.
+    version: "0.4.14"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -221,7 +244,19 @@ dependencies:
     # to step DOWN to its real value at this upgrade. That is the fix landing,
     # not a regression, and any alert thresholded on the inflated numbers has
     # to be re-read afterwards.
-    version: "0.2.9"
+    #
+    # 0.2.10 changes no template: appVersion moves to 0.5.10, which takes the
+    # ingest logging handler off the hot path. That handler is chained ahead of
+    # the NATS handler for every log line, state event and metrics sample, and
+    # it logged each one at info -- one JSON line written per ingested item. On
+    # e12-preprod it ran while the gateway was already ~11.5 minutes behind
+    # wall clock, longer than the agent's 10-minute inflight ack deadline, so
+    # every delivered item was nacked and resent and the resends fed the lag.
+    # Those lines are debug now; the counts stay in the buffer and NATS publish
+    # counters. The same image also renames that entry's severity field to
+    # entry_level -- zerolog writes its own severity under "level", so each
+    # line carried two "level" keys.
+    version: "0.2.10"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
@@ -364,6 +399,27 @@ dependencies:
     # this deployment: a tab still running 0.2.11 has no listener, so its
     # FIRST click after the upgrade still opens a new tab. One reload onto
     # 0.2.12 and it steers. Frontend-only; the apiserver is untouched.
-    version: "0.1.15"
+    #
+    # 0.1.16: appVersion 0.2.13 carries the platform owner's ingestion screens
+    # and the shell chrome two page groups never had. The ingestion fleet and
+    # detail screens are NOT frontend-only -- they call routes only apiserver
+    # image 0.5.10 serves and reach them through a menu row that image's
+    # migration seeds, so this moves together with apiserver 0.4.14 above. The
+    # rest is: settings and the invitation screens now render inside the app
+    # shell (settings had its own layout carrying only the user menu, so the AI
+    # trigger and the bell vanished on every settings page, and the invitation
+    # screens had no header at all -- the shared notification socket moved into
+    # that layout too, so a badge arriving while you sit in settings no longer
+    # freezes until the next refetch), and the log table stays inside its panel
+    # instead of pushing the page sideways, which on a phone was an oscillation
+    # that never settled.
+    #
+    # Image 0.2.13 was built and pushed by hand, as was backend 0.5.10: the
+    # docker jobs in both repos are off until 2026-09-01. A chart bump in this
+    # window points at nothing unless someone produces the image locally --
+    # which is how chart 0.4.14 and 0.2.10 came to be published on 2026-08-20
+    # against an image that did not exist for the first three hours of their
+    # life.
+    version: "0.1.16"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
