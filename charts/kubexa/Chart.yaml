@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.22
+version: 0.5.23
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -157,7 +157,22 @@ dependencies:
     # per-cluster detail route, so a reader arriving by URL can tell whose
     # cluster they are looking at. Purely additive; every 0.5.10 key is still
     # in the same place. Moves with app 0.1.17, which renders them.
-    version: "0.4.15"
+    #
+    # 0.4.16 changes no template: appVersion moves to 0.5.12, which adds one
+    # field to the fleet ingestion response -- owner_name, on the cluster rows,
+    # the namespace rows and the detail identity. 0.4.15 already carried
+    # namespace_slug and the screen showed it as the owner, but a slug is not a
+    # name: a personal namespace's slug is derived from the local-part of the
+    # signup email, so on this deployment BOTH clusters read "info" -- a true
+    # value and no answer to whose cluster it is. The name is resolved from
+    # where it actually lives: organizations.name for an org namespace, else the
+    # owning user's display_name, else their email.
+    #
+    # No migration and no new permission -- the routes and their
+    # ingestion:read_all gate are unchanged since 0.4.14, so this release has no
+    # ordering constraint of its own. Purely additive on the wire; every 0.5.11
+    # key is still in the same place. Moves with app 0.1.18, which renders it.
+    version: "0.4.16"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -277,7 +292,11 @@ dependencies:
     # forever while re-enqueueing the prefix. 0.5.11 cuts on a rune boundary,
     # and any framing failure that remains is dropped and acked rather than
     # returned. Two of these were observed live on 0.5.10 within ten minutes.
-    version: "0.2.11"
+    #
+    # 0.2.12 changes no template and nothing on this side: appVersion moves to
+    # 0.5.12 only so both processes in the namespace run one image version. All
+    # of 0.5.12's work is in the apiserver, described under 0.4.16 above.
+    version: "0.2.12"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
@@ -454,6 +473,18 @@ dependencies:
     #
     # Both images (backend 0.5.11, app 0.2.14) were again built and pushed by
     # hand -- the docker jobs stay off until 2026-09-01.
-    version: "0.1.17"
+    #
+    # 0.1.18: appVersion 0.2.15 names the OWNER instead of showing a handle. The
+    # owner cell is three lines now -- name / slug / id: the name when it
+    # resolves, the slug promoted to the top when it does not, the uuid alone
+    # when neither exists, and the handle dropped whenever it equals the name.
+    # Same treatment in all three places the ids appear: cluster rows, the Loki
+    # namespace table, and the detail header. The name comes from apiserver
+    # 0.4.16 above; against image 0.5.11 the field is absent and every cell
+    # falls back to the slug, so nothing breaks, but the two move together.
+    #
+    # Both images (backend 0.5.12, app 0.2.15) were again built and pushed by
+    # hand -- the docker jobs stay off until 2026-09-01.
+    version: "0.1.18"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
