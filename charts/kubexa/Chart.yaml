@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.21
+version: 0.5.22
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -148,7 +148,16 @@ dependencies:
     # saying this image changed nothing on the apiserver. It was republished
     # the same day with the text above; the templates and appVersion are
     # identical in both.
-    version: "0.4.14"
+    #
+    # 0.4.15 changes no template: appVersion moves to 0.5.11. The fleet
+    # ingestion response now carries the names behind its ids -- token_name
+    # next to tenant_id (which is the owning TOKEN's row id, NOT a tenant),
+    # namespace_slug next to namespace_id, and {cluster_id,label} pairs where
+    # the namespace rows listed bare uuids -- plus an `identity` object on the
+    # per-cluster detail route, so a reader arriving by URL can tell whose
+    # cluster they are looking at. Purely additive; every 0.5.10 key is still
+    # in the same place. Moves with app 0.1.17, which renders them.
+    version: "0.4.15"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -256,7 +265,19 @@ dependencies:
     # counters. The same image also renames that entry's severity field to
     # entry_level -- zerolog writes its own severity under "level", so each
     # line carried two "level" keys.
-    version: "0.2.10"
+    #
+    # 0.2.11 changes no template: appVersion moves to 0.5.11, and on this side
+    # it is a real fix. An oversized log line was truncated by slicing bytes
+    # off LogEntry.Message, a proto3 `string`; the cut split a multi-byte rune
+    # and proto.Marshal then refused the entry outright ("string field contains
+    # invalid UTF-8"). The loss was the small half: that error aborted the
+    # enqueue loop for the whole agent message, so every entry after it never
+    # reached the queue, no ack was earned, and the agent replayed the identical
+    # batch after each 10-minute inflight deadline -- failing at the same entry
+    # forever while re-enqueueing the prefix. 0.5.11 cuts on a rune boundary,
+    # and any framing failure that remains is dropped and acked rather than
+    # returned. Two of these were observed live on 0.5.10 within ten minutes.
+    version: "0.2.11"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
@@ -420,6 +441,19 @@ dependencies:
     # which is how chart 0.4.14 and 0.2.10 came to be published on 2026-08-20
     # against an image that did not exist for the first three hours of their
     # life.
-    version: "0.1.16"
+    #
+    # 0.1.17 changes no template: appVersion moves to 0.2.14. The ingestion
+    # screens print the name behind every id now -- owner (namespace slug) and
+    # token name in their own columns, cluster labels where the namespace table
+    # listed uuids, a detail header that says whose cluster it is. Settings ->
+    # Tokens shows the token ID those screens key on, which appeared nowhere in
+    # the UI before, so a reader could not match a row to one of their own
+    # tokens. And the settings pages regained the search trigger: the palette
+    # was mounted only by the app shell, so on every settings page it was
+    # unreachable by mouse AND by Cmd-K.
+    #
+    # Both images (backend 0.5.11, app 0.2.14) were again built and pushed by
+    # hand -- the docker jobs stay off until 2026-09-01.
+    version: "0.1.17"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
