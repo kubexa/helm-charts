@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.23
+version: 0.5.24
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -172,7 +172,24 @@ dependencies:
     # ingestion:read_all gate are unchanged since 0.4.14, so this release has no
     # ordering constraint of its own. Purely additive on the wire; every 0.5.11
     # key is still in the same place. Moves with app 0.1.18, which renders it.
-    version: "0.4.16"
+    #
+    # 0.4.17 changes no template: appVersion moves to 0.5.13, the first image
+    # that serves the cluster monitoring screen -- GET .../metrics (the panel
+    # catalog, read from VictoriaMetrics over a requested window),
+    # .../metrics/summary (node, pod and namespace counts from the stored
+    # state plus the agent's last telemetry) and .../metrics/pods.
+    #
+    # This one HAS an ordering constraint, unlike the last three. Users
+    # migration 0074 seeds cluster:metrics_read and grants it to admin and
+    # user; role grants load once at boot, so an apiserver started ahead of the
+    # migration answers 403 on all three routes while the caller's own
+    # permission list says they hold the right. The migrate initContainer
+    # orders this correctly and this chart uses it.
+    #
+    # Moves with app 0.1.19, and this pair does NOT degrade gracefully: 0.5.12
+    # serves none of the three routes, so an app at 0.1.19 against it shows the
+    # tab and 404s on every panel.
+    version: "0.4.17"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -296,7 +313,10 @@ dependencies:
     # 0.2.12 changes no template and nothing on this side: appVersion moves to
     # 0.5.12 only so both processes in the namespace run one image version. All
     # of 0.5.12's work is in the apiserver, described under 0.4.16 above.
-    version: "0.2.12"
+    #
+    # 0.2.13, same again: appVersion moves to 0.5.13 for the apiserver's
+    # monitoring routes described under 0.4.17 above. Nothing on this side.
+    version: "0.2.13"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
@@ -485,6 +505,21 @@ dependencies:
     #
     # Both images (backend 0.5.12, app 0.2.15) were again built and pushed by
     # hand -- the docker jobs stay off until 2026-09-01.
-    version: "0.1.18"
+    #
+    # 0.1.19 moves appVersion to 0.2.16, the cluster monitoring tab: eight
+    # uPlot panels, a summary strip and a pod table, all drawn from stored
+    # state and the metrics store rather than from a live agent query. What
+    # the screen is careful about is the difference between nothing and we
+    # could not find out -- a failed panel says so in words instead of drawing
+    # an empty chart, and a missing sample stays a break in the line rather
+    # than a dip to zero.
+    #
+    # Pairs with apiserver 0.4.17 above, and unlike the last two app releases
+    # there is nothing to fall back to: against image 0.5.12 the tab appears
+    # and every panel 404s.
+    #
+    # Both images (backend 0.5.13, app 0.2.16) were again built and pushed by
+    # hand -- the docker jobs stay off until 2026-09-01.
+    version: "0.1.19"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
