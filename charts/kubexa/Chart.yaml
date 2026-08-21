@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.24
+version: 0.5.25
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -520,6 +520,23 @@ dependencies:
     #
     # Both images (backend 0.5.13, app 0.2.16) were again built and pushed by
     # hand -- the docker jobs stay off until 2026-09-01.
-    version: "0.1.19"
+    #
+    # 0.1.20 moves appVersion to 0.2.17, and this release carries nothing else:
+    # the log explorer's columns hold still under a drag, and its views fit a
+    # phone. The table's widths came from three sources that disagreed mid-drag,
+    # so pressing the flex column's handle snapped it from 910px to 150, and the
+    # table jumped a whole 180px at the moment the button came up. Every column
+    # now reaches the DOM with an explicit width measured from the panel, and
+    # the table declares its own total width so it overflows into the panel's
+    # scroll rather than squeezing a column to nothing. On a phone the row
+    # number is pinned, the resize handles are withheld, a list row wraps so the
+    # message gets a line of its own, and the field rail is reachable at all --
+    # behind a Sheet.
+    #
+    # Nothing else in this umbrella moves: apiserver 0.4.17, agentserver 0.2.13
+    # and consumer 0.1.1 are unchanged, and no migration is involved. The app
+    # image (0.2.17) was again built and pushed by hand -- the docker jobs stay
+    # off until 2026-09-01.
+    version: "0.1.20"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
