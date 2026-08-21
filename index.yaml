@@ -3,7 +3,29 @@ entries:
   kubexa-agent:
   - apiVersion: v2
     appVersion: 0.7.3
-    created: "2026-08-21T00:19:52.045546789Z"
+    created: "2026-08-21T08:02:15.020209349Z"
+    description: Kubexa agent — collects Kubernetes logs, state, and metrics and streams
+      them to the Kubexa gateway.
+    digest: 1b28ce726a8fc478fde6bb3cf094aaa1c9bf07cbe08d7873c87a0b7cd934d3c0
+    home: https://github.com/kubexa/kubexa-agent
+    keywords:
+    - kubexa
+    - observability
+    - kubernetes
+    - monitoring
+    maintainers:
+    - name: Kubexa
+      url: https://github.com/kubexa
+    name: kubexa-agent
+    sources:
+    - https://github.com/kubexa/kubexa-agent
+    type: application
+    urls:
+    - https://kubexa.github.io/helm-charts/kubexa-agent-0.7.6.tgz
+    version: 0.7.6
+  - apiVersion: v2
+    appVersion: 0.7.3
+    created: "2026-08-21T08:02:15.018498138Z"
     description: Kubexa agent — collects Kubernetes logs, state, and metrics and streams
       them to the Kubexa gateway.
     digest: 1ab39249a1872652c0037e639165a5aa8683411d1b58e6a4a39e0298e1888714
@@ -25,7 +47,7 @@ entries:
     version: 0.7.5
   - apiVersion: v2
     appVersion: 0.7.3
-    created: "2026-08-21T00:19:52.044641234Z"
+    created: "2026-08-21T08:02:15.017638528Z"
     description: Kubexa agent — collects Kubernetes logs, state, and metrics and streams
       them to the Kubexa gateway.
     digest: d0ce2045fcc20abe52ab549ddb4af3dfcef4d5b67c844a347fa38f5aa4296d7d
@@ -47,7 +69,7 @@ entries:
     version: 0.7.4
   - apiVersion: v2
     appVersion: 0.7.3
-    created: "2026-08-21T00:19:52.043779515Z"
+    created: "2026-08-21T08:02:15.016829383Z"
     description: Kubexa agent — collects Kubernetes logs, state, and metrics and streams
       them to the Kubexa gateway.
     digest: ae90b4551dc59f64a010c46f3e18102e30de50701615247a173b35736dee4a58
@@ -69,7 +91,7 @@ entries:
     version: 0.7.3
   - apiVersion: v2
     appVersion: 0.7.2
-    created: "2026-08-21T00:19:52.042927219Z"
+    created: "2026-08-21T08:02:15.016025879Z"
     description: Kubexa agent — collects Kubernetes logs, state, and metrics and streams
       them to the Kubexa gateway.
     digest: 1f687cd24530bfcf37bb5f241c2e09fa25620b38f48f1f381e0036c4cae46c21
@@ -91,7 +113,7 @@ entries:
     version: 0.7.2
   - apiVersion: v2
     appVersion: 0.7.1
-    created: "2026-08-21T00:19:52.042096897Z"
+    created: "2026-08-21T08:02:15.015197277Z"
     description: Kubexa agent — collects Kubernetes logs, state, and metrics and streams
       them to the Kubexa gateway.
     digest: 7a2f7ad19dba4029aa36c47c7829c22cdc58725e2e2d3e2be289b14449e6ca82
@@ -113,7 +135,7 @@ entries:
     version: 0.7.1
   - apiVersion: v2
     appVersion: 0.7.0
-    created: "2026-08-21T00:19:52.041220526Z"
+    created: "2026-08-21T08:02:15.014402449Z"
     description: Kubexa agent — collects Kubernetes logs, state, and metrics and streams
       them to the Kubexa gateway.
     digest: 1b1677f010d5550bb9046a17f5c1f6a7ed039be0baec55b6d2537701235139dd
@@ -135,7 +157,7 @@ entries:
     version: 0.7.0
   - apiVersion: v2
     appVersion: 0.6.2
-    created: "2026-08-21T00:19:52.04034148Z"
+    created: "2026-08-21T08:02:15.013494329Z"
     description: Kubexa agent — collects Kubernetes logs, state, and metrics and streams
       them to the Kubexa gateway.
     digest: 9390b0430858f5d111d68c6791b132f14dc77f206da25c1b3ed6e87bb5b710b2
@@ -157,7 +179,7 @@ entries:
     version: 0.6.2
   - apiVersion: v2
     appVersion: 0.6.0
-    created: "2026-08-21T00:19:52.038590755Z"
+    created: "2026-08-21T08:02:15.011645921Z"
     description: Kubexa agent — collects Kubernetes logs, state, and metrics and streams
       them to the Kubexa gateway.
     digest: 600d57914ac27cc7b44c63467e33b1f367c73562da5d6ac59b460a330215001b
@@ -179,7 +201,7 @@ entries:
     version: 0.6.1
   - apiVersion: v2
     appVersion: 0.6.0
-    created: "2026-08-21T00:19:52.037603727Z"
+    created: "2026-08-21T08:02:15.010827369Z"
     description: Kubexa agent — collects Kubernetes logs, state, and metrics and streams
       them to the Kubexa gateway.
     digest: 8d54feb044c9f5676f34a59ed1858618699159941fe444519aa53bb0e682f715
@@ -201,7 +223,7 @@ entries:
     version: 0.6.0
   - apiVersion: v2
     appVersion: 0.5.0
-    created: "2026-08-21T00:19:52.036844091Z"
+    created: "2026-08-21T08:02:15.01004307Z"
     description: Kubexa agent — collects Kubernetes logs, state, and metrics and streams
       them to the Kubexa gateway.
     digest: 9bd55b46c76eff76f1d017dbe4dd71b7e15334652944a691703096ad34f9851a
@@ -223,7 +245,7 @@ entries:
     version: 0.5.0
   - apiVersion: v2
     appVersion: 0.4.0
-    created: "2026-08-21T00:19:52.036095052Z"
+    created: "2026-08-21T08:02:15.009253692Z"
     description: Kubexa agent — collects Kubernetes logs, state, and metrics and streams
       them to the Kubexa gateway.
     digest: 873cc2f132ef4bc22ea4a831832b5ed4206c178eece4a0862cdad82473040bc5
@@ -245,7 +267,7 @@ entries:
     version: 0.4.0
   - apiVersion: v2
     appVersion: 0.2.1
-    created: "2026-08-21T00:19:52.03530444Z"
+    created: "2026-08-21T08:02:15.008525449Z"
     description: Kubexa agent — collects Kubernetes logs, state, and metrics and streams
       them to the Kubexa gateway.
     digest: 0de6ea4c17e1b2dad19caea17ad622171f98517c3cd36690e5aad33478cdc9c2
@@ -267,7 +289,7 @@ entries:
     version: 0.3.1
   - apiVersion: v2
     appVersion: 0.2.0
-    created: "2026-08-21T00:19:52.034569852Z"
+    created: "2026-08-21T08:02:15.007791785Z"
     description: Kubexa agent — collects Kubernetes logs, state, and metrics and streams
       them to the Kubexa gateway.
     digest: 85864c14b998216e8f640658181f74e7a1f31046d89ab7edc635ad3f7c2f81ec
@@ -289,7 +311,7 @@ entries:
     version: 0.3.0
   - apiVersion: v2
     appVersion: 0.1.0
-    created: "2026-08-21T00:19:52.033793401Z"
+    created: "2026-08-21T08:02:15.006968203Z"
     description: Kubexa Kubernetes monitoring agent
     digest: 0cd3739f16d5d3be3caec32b3471ed4bc59835362682ac0b9b6a776bdf99c72f
     home: https://github.com/kubexa/kubexa-agent
@@ -307,4 +329,4 @@ entries:
     urls:
     - https://kubexa.github.io/helm-charts/kubexa-agent-0.1.0.tgz
     version: 0.1.0
-generated: "2026-08-21T00:19:52.033159365Z"
+generated: "2026-08-21T08:02:15.006396723Z"
