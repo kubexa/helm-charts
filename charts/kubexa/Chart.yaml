@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.28
+version: 0.5.29
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -647,6 +647,20 @@ dependencies:
     # own discovered catalog second, which is what finally names a collected
     # CRD -- in the coverage strip too. Still no apiserver change; both
     # catalogs are endpoints 0.5.14 already serves.
-    version: "0.1.25"
+    #
+    # 0.1.26 (image 0.2.23): two things found by using the screens rather than
+    # by any test. The auth forms now say the request is in flight -- login is
+    # several sequential round-trips against a backend that is not co-located,
+    # and every build up to 0.2.22 disabled the button for those seconds and
+    # said nothing else, which reads as a click that did nothing. All four forms
+    # swap their label for a pending sentence beside a spinner and disable their
+    # fields until the exchange settles. And a combobox panel can no longer be
+    # shifted off the left edge of the viewport: Radix computes its collision
+    # shift against the wrapper it positions, while the panel declared a fixed
+    # width read from a variable set only AFTER the size middleware runs, so the
+    # measured pass was the option list at max-content and a long enough option
+    # pushed the wrapper's origin off-screen. Reproducible on the Activity kind
+    # picker; every combobox gets the fix. Still no apiserver change.
+    version: "0.1.26"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
