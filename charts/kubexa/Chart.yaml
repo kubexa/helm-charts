@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.25
+version: 0.5.26
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -189,7 +189,46 @@ dependencies:
     # Moves with app 0.1.19, and this pair does NOT degrade gracefully: 0.5.12
     # serves none of the three routes, so an app at 0.1.19 against it shows the
     # tab and 404s on every panel.
-    version: "0.4.17"
+    #
+    # 0.4.18 changes no template: appVersion moves to 0.5.14, and this one has
+    # THREE migrations, one of which decides how long the rollout takes.
+    #
+    # PUT /me/settings became a partial patch. It used to replace the settings
+    # object wholesale -- invisible while `theme` was the only field, a
+    # data-loss bug the moment there are two. `nav_favorites` is that second
+    # field, an ordered list of menu module keys on the existing users.settings
+    # JSONB, so no migration. Pair it with app 0.1.22 or later and DO NOT ship
+    # that app against 0.5.13: the favorites editor sends `{nav_favorites: [...]}`
+    # alone, an older apiserver reads that as the whole object and erases the
+    # user's theme, and the next theme change erases their pins back.
+    #
+    # The cluster object change history: GET .../clusters/{tenant}/{cluster}/state/events
+    # plus its histogram and coverage reads, a keyset-paged timeline of what
+    # changed in a cluster, secrets masked. Users 0076 seeds cluster:events_read
+    # on the existing `cluster` module and grants it to admin AND user. Role
+    # grants load once at boot, so 0076 must land before the pod starts; the
+    # migrate initContainer orders that. In THIS umbrella the timeline is no
+    # longer inert -- app 0.1.23 is the screen that reads it.
+    #
+    # THE ONE TO PLAN FOR: app 0077 rebuilds the timeline index CONCURRENTLY,
+    # outside a transaction. On apexcrawl that table is 2481 MB across 1.12M
+    # rows, so the build takes real time and the migrate initContainer blocks
+    # until it finishes -- the rollout WAITS, it does not fail. CONCURRENTLY is
+    # deliberate: a transactional build holds a SHARE lock and the writer it
+    # would block is the telemetry consumer, which under at-least-once delivery
+    # stops acking rather than falling behind. 0077 drops 0075's index and
+    # replaces it (same key, two INCLUDE columns), so the cost is 208 MB, not
+    # 145 + 208.
+    #
+    # The resource catalog can now say a live read will be refused BEFORE the
+    # click and name which gate refused it -- the cluster's RBAC or the agent's
+    # own query.rules policy. It reads a `live_query` field this image writes
+    # onto catalog rows from what consumer 0.1.2 stores there.
+    #
+    # Rolling back to 0.5.13 leaves cluster:events_read seeded and the rebuilt
+    # index in place; the older binary ignores both. What it does NOT undo is
+    # the settings contract -- roll the app back with it.
+    version: "0.4.18"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -316,7 +355,12 @@ dependencies:
     #
     # 0.2.13, same again: appVersion moves to 0.5.13 for the apiserver's
     # monitoring routes described under 0.4.17 above. Nothing on this side.
-    version: "0.2.13"
+    #
+    # 0.2.14, same again: appVersion moves to 0.5.14 only so both processes in
+    # the namespace run one image version. Nothing on this side. All of 0.5.14
+    # is described under apiserver 0.4.18 above -- including app 0077, the
+    # migration the rollout waits on.
+    version: "0.2.14"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
@@ -326,7 +370,21 @@ dependencies:
     # namespace label to tenant_namespace. Any dashboard or alert reading the
     # old series breaks at the deployment instant -- expected, and covered
     # in the deployments runbook.
-    version: "0.1.1"
+    #
+    # 0.1.2 changes no template: appVersion moves to 0.2.1, the first image that
+    # carries the agent's own query.rules policy onto the stored catalog row
+    # (policy_list / policy_get). apiserver 0.5.14 reads those two fields to
+    # answer "will a live read be refused, and by which gate" before the user
+    # clicks. Below this image the fields are never written, the apiserver reads
+    # them as absent, and every row answers `unknown` -- which is deliberately
+    # not rendered as a denial, so the screen behaves as it did before. The
+    # consumer decides per row whether to trust them: an agent older than 0.4.0
+    # has no such proto field, so proto3 decodes the absence to `false`,
+    # indistinguishable on the wire from a genuine refusal. Those rows are
+    # written unset rather than false, and the version comparison reads only the
+    # major.minor.patch core -- the agent reports `git describe`, so a real
+    # deployment looks like "0.7.1-3-gabc1234".
+    version: "0.1.2"
     repository: oci://ghcr.io/kubexa/charts
     condition: consumer.enabled
   - name: kubexa-app
@@ -537,6 +595,36 @@ dependencies:
     # and consumer 0.1.1 are unchanged, and no migration is involved. The app
     # image (0.2.17) was again built and pushed by hand -- the docker jobs stay
     # off until 2026-09-01.
-    version: "0.1.20"
+    #
+    # This umbrella jumps the app three chart releases at once -- 0.1.21, 0.1.22
+    # and 0.1.23 were each published as they were built, and none of them was
+    # ever bundled.
+    #
+    # 0.1.21 (image 0.2.18): a column resize in the log table no longer starts a
+    # native column drag, and the first data column is unpinned.
+    #
+    # 0.1.22 (image 0.2.19): the navigation favorites editor (needs apiserver
+    # 0.5.14 -- see the warning under 0.4.18, this pair does NOT degrade
+    # gracefully), pinned destinations in the palette, the mobile tab bar and
+    # the More sheet; the cluster Overview says whose AI key the cluster runs
+    # on; and the resource catalog says a live read is refused BEFORE the click,
+    # naming the gate that refused it.
+    #
+    # 0.1.23 (image 0.2.20): the cluster Activity tab -- the object change
+    # history, gated on cluster:events_read, which users migration 0076 seeds.
+    # Against an older apiserver the tab never appears at all, because the gate
+    # it reads is a permission the server does not know about. One histogram row
+    # per event type, each on its own scale: the live distribution is about 99%
+    # `modified`, so a shared scale renders `added` and `deleted` as nothing.
+    # Every instant is `received_at`, the only trustworthy time column --
+    # `event_time` is nullable and its units were wrong until repair migration
+    # 0053. No object payloads are served on this screen at all: a payload needs
+    # kind AND namespace AND name, and serving them across a timeline page would
+    # enumerate every Secret in the cluster.
+    #
+    # All four images in this umbrella (backend 0.5.14, app 0.2.18 through
+    # 0.2.20, consumer 0.2.1) were built and pushed by hand -- the docker jobs
+    # stay off until 2026-09-01.
+    version: "0.1.23"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
