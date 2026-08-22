@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.26
+version: 0.5.27
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -625,6 +625,15 @@ dependencies:
     # All four images in this umbrella (backend 0.5.14, app 0.2.18 through
     # 0.2.20, consumer 0.2.1) were built and pushed by hand -- the docker jobs
     # stay off until 2026-09-01.
-    version: "0.1.23"
+    #
+    # 0.1.24 (image 0.2.21): the Activity tab gets the filters its own URL and
+    # the apiserver already accepted. `kind`, `namespace` and `event_type` went
+    # out on every request 0.1.23 made, but nothing on the toolbar set the first
+    # two -- so the coverage strip could name the kinds a window holds events
+    # for while the screen offered no way to look at one. `name` is new to the
+    # URL and matched exactly, not searched. No apiserver change: every
+    # parameter is one 0.5.14 has accepted since it shipped, which 0.1.23
+    # already required.
+    version: "0.1.24"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
