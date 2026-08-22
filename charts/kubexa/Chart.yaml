@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.27
+version: 0.5.28
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -634,6 +634,19 @@ dependencies:
     # URL and matched exactly, not searched. No apiserver change: every
     # parameter is one 0.5.14 has accepted since it shipped, which 0.1.23
     # already required.
-    version: "0.1.24"
+    #
+    # 0.1.25 (image 0.2.22): that kind picker fell back to the apiserver's
+    # COMPILED list of 24 curated kinds whenever the window's coverage said
+    # nothing. Which kinds a cluster can produce events for is not that list --
+    # it is the AGENT's own `collect.state.rules[].resources`, four by default
+    # and any plural resource name an operator adds, a CRD's included. On a
+    # default install the picker therefore offered twenty kinds that can never
+    # produce an event, and could not name the CRD that install does collect.
+    # The fallback is gone: coverage is the only source that knows those rules.
+    # Display names now resolve from the compiled list first and the cluster's
+    # own discovered catalog second, which is what finally names a collected
+    # CRD -- in the coverage strip too. Still no apiserver change; both
+    # catalogs are endpoints 0.5.14 already serves.
+    version: "0.1.25"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
