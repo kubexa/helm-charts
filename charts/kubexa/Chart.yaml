@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.29
+version: 0.5.30
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -228,7 +228,41 @@ dependencies:
     # Rolling back to 0.5.13 leaves cluster:events_read seeded and the rebuilt
     # index in place; the older binary ignores both. What it does NOT undo is
     # the settings contract -- roll the app back with it.
-    version: "0.4.18"
+    #
+    # 0.4.19 was published and then skipped by every umbrella until this one.
+    # It puts GOMEMLIMIT on the template and makes the values schema REQUIRE a
+    # unit suffix on goMemLimit: a bare "1600" or "0" used to validate and boot,
+    # then GC continuously against the wrong soft limit, because the Go runtime
+    # accepts a unitless GOMEMLIMIT without erroring. It now fails the render.
+    #
+    # 0.4.20 (image 0.5.15): scoped cluster access. A collaborator's grant is no
+    # longer only a level -- it is a level plus an optional per-cluster access
+    # profile naming which data SURFACES (logs, resources, events, metrics) they
+    # may read and which namespace / pod / workload patterns bound each one.
+    # Every authorization call site declares its surface, and a grant that cannot
+    # evaluate a constraint fails closed. Three surfaces that used to be all-or-
+    # nothing per cluster are now per-grant.
+    #
+    # THE ONE TO PLAN FOR: three users-database migrations ride along, and 0079
+    # is an exposure event in its own words, not a bug fix. It grants
+    # cluster:logs_read to the 'user' role, so every EXISTING collaborator whose
+    # profile_id IS NULL -- which this feature reads as unrestricted -- gains log
+    # access on any cluster they already had read access to, the day it runs.
+    # Redaction is not built yet: those are raw, unredacted lines.
+    #
+    # AND THERE IS NO WINDOW. The apiserver's migrate initContainer runs
+    # --db=all up during the pod's own startup, so `helm upgrade` applies all
+    # three with nothing in between. Count the affected rows BEFORE upgrading:
+    #
+    #     SELECT count(*) FROM cluster_collaborators WHERE profile_id IS NULL;
+    #
+    # After the upgrade that query answers a different question.
+    #
+    # Rolling back to 0.4.18/0.5.14 leaves all three migrations applied. The
+    # older binary ignores the profile tables, but 0079's grant STAYS -- the
+    # initContainer only ever runs `up`, so the widened log access survives a
+    # rollback until someone runs that migration's Down by hand.
+    version: "0.4.20"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -360,7 +394,12 @@ dependencies:
     # the namespace run one image version. Nothing on this side. All of 0.5.14
     # is described under apiserver 0.4.18 above -- including app 0077, the
     # migration the rollout waits on.
-    version: "0.2.14"
+    #
+    # 0.2.15 changes no template: appVersion moves to 0.5.15 so both processes
+    # in the namespace run one image version. None of 0.5.15's work is the
+    # agentserver's -- scoped cluster access is an apiserver authorization
+    # change, described under apiserver 0.4.20 above.
+    version: "0.2.15"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
@@ -661,6 +700,22 @@ dependencies:
     # measured pass was the option list at max-content and a long enough option
     # pushed the wrapper's origin off-screen. Reproducible on the Activity kind
     # picker; every combobox gets the fix. Still no apiserver change.
-    version: "0.1.26"
+    #
+    # 0.1.27 (image 0.2.24): the scoped-access frontend. Every cluster screen
+    # now asks what the caller was actually granted instead of assuming the
+    # whole cluster. A tab appears only when the caller holds the permission AND
+    # the grant names that surface; a denied surface hides its tab entirely
+    # rather than showing a locked one, so a scoped collaborator is never
+    # offered a door that answers 403. Owners are unaffected: an unrestricted
+    # grant arrives as `unrestricted: true` with `surfaces: null`, and the one
+    # reader of that field checks `unrestricted` first.
+    #
+    # REQUIRES apiserver 0.4.20. This build calls GET /clusters/:id/access and
+    # the per-cluster access-profile CRUD routes, which 0.5.14 does not serve --
+    # the app must never move ahead of the apiserver here. Rolling the app back
+    # alone is equally wrong: 0.2.23 has no surface gate, so a scoped
+    # collaborator would see every tab their permissions allow and each would
+    # 403. Roll them back together.
+    version: "0.1.27"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
