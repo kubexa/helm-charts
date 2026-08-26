@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.31
+version: 0.5.32
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -744,6 +744,18 @@ dependencies:
     # alone is equally wrong: 0.2.23 has no surface gate, so a scoped
     # collaborator would see every tab their permissions allow and each would
     # 403. Roll them back together.
-    version: "0.1.27"
+    #
+    # 0.1.28 changes no template: appVersion moves to 0.2.25, the frontend half
+    # of what apiserver 0.4.21 shipped. It also fixes a defect 0.4.21 made
+    # reachable: the backend now lists a cluster whose access profile cannot be
+    # resolved and sends an EMPTY level, which 0.2.24 interpolated into an i18n
+    # key and rendered as the literal string `cluster.level.` in the badge.
+    # That row now reads as its own state, and the invitee's raw-log warning is
+    # shown only when the offered profile actually grants logs.
+    #
+    # Pairs with apiserver 0.4.21 and must not run ahead of it: against 0.5.15
+    # both fields are absent, so an invitation offering logs shows no warning
+    # at all.
+    version: "0.1.28"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
