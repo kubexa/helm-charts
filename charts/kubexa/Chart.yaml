@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.30
+version: 0.5.31
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -262,7 +262,31 @@ dependencies:
     # older binary ignores the profile tables, but 0079's grant STAYS -- the
     # initContainer only ever runs `up`, so the widened log access survives a
     # rollback until someone runs that migration's Down by hand.
-    version: "0.4.20"
+    #
+    # 0.4.21 changes no template: appVersion moves to 0.5.16, which closes the
+    # three gaps the first live install of scoped access surfaced.
+    #
+    # ONE MIGRATION, users 0081, applied by the same initContainer with the
+    # same absence of a window: it grants cluster:resource_live_read to the
+    # 'user' role. Read it against 0079 above, because they look alike and are
+    # opposites. 0079 widened what data a grant reaches. 0081 removes a gate
+    # that was refusing the LEGITIMATE path: 0056 withheld this permission
+    # because a live read could return unmasked Secret VALUES, and that
+    # stopped being true once the secrets resource got its own gate
+    # (LevelAdmin AND SurfaceAdmin, and SurfaceAdmin is not grantable by any
+    # access profile). Live, that left a cluster OWNER on the default 'user'
+    # role getting 200 from /resources and 403 from /live/resources on the
+    # same cluster, and made the `resources` surface unusable.
+    #
+    # Also, needing no migration: an access profile that cannot compile into a
+    # scope now degrades its own row in GET /me/clusters -- listed, marked
+    # access_broken, given the deny-everything scope -- instead of failing the
+    # whole list, and both pending-invitation lists carry profile_surfaces.
+    #
+    # No app floor: 0.1.27 reads neither field yet, and both are additive.
+    #
+    # Rolling back to 0.4.20/0.5.15 leaves 0081's grant in place, like 0079's.
+    version: "0.4.21"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -399,7 +423,11 @@ dependencies:
     # in the namespace run one image version. None of 0.5.15's work is the
     # agentserver's -- scoped cluster access is an apiserver authorization
     # change, described under apiserver 0.4.20 above.
-    version: "0.2.15"
+    #
+    # 0.2.16, same again: appVersion moves to 0.5.16 so both processes in the
+    # namespace run one image version. Nothing on this side -- all of 0.5.16
+    # is described under apiserver 0.4.21 above, including users 0081.
+    version: "0.2.16"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
