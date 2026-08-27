@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
 type: application
-version: 0.5.32
+version: 0.5.33
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -286,7 +286,17 @@ dependencies:
     # No app floor: 0.1.27 reads neither field yet, and both are additive.
     #
     # Rolling back to 0.4.20/0.5.15 leaves 0081's grant in place, like 0079's.
-    version: "0.4.21"
+    #
+    # 0.4.22 carries image 0.5.17 and migration users 0083, which creates
+    # plans.max_metric_series and namespace_plans.max_metric_series. The
+    # consumer below needs those two columns; apply this chart's migration
+    # before or with consumer 0.1.3. Out of order is not fatal -- the
+    # consumer treats an unreadable ceiling as unknown, not as zero, and
+    # keeps writing while counting the cause.
+    #
+    # It also puts `scrape_kinds` on the fleet ingestion contract, which app
+    # 0.1.29 renders.
+    version: "0.4.22"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -427,7 +437,13 @@ dependencies:
     # 0.2.16, same again: appVersion moves to 0.5.16 so both processes in the
     # namespace run one image version. Nothing on this side -- all of 0.5.16
     # is described under apiserver 0.4.21 above, including users 0081.
-    version: "0.2.16"
+    #
+    # 0.2.17 carries image 0.5.17, which reads the agent's per-kind metric
+    # scrape health off the heartbeat and exports six
+    # kubexa_gateway_agent_scrape_* series per (tenant_id, cluster_id, kind).
+    # No floor against the agent chart: an agent that reports no scrape
+    # health is recorded as `unknown`, never as healthy.
+    version: "0.2.17"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
@@ -451,7 +467,12 @@ dependencies:
     # written unset rather than false, and the version comparison reads only the
     # major.minor.patch core -- the agent reports `git describe`, so a real
     # deployment looks like "0.7.1-3-gabc1234".
-    version: "0.1.2"
+    #
+    # 0.1.3 carries image 0.2.2, the first one that enforces a per-namespace
+    # metric series ceiling. It reads the ceiling from the two columns
+    # apiserver 0.4.22's migration 0083 creates. Needs config.usersDb, which
+    # this chart already wires for the namespace cache.
+    version: "0.1.3"
     repository: oci://ghcr.io/kubexa/charts
     condition: consumer.enabled
   - name: kubexa-app
@@ -756,6 +777,10 @@ dependencies:
     # Pairs with apiserver 0.4.21 and must not run ahead of it: against 0.5.15
     # both fields are absent, so an invitation offering logs shows no warning
     # at all.
-    version: "0.1.28"
+    #
+    # 0.1.29 carries image 0.2.26, which renders metric scrape health on the
+    # admin ingestion screen. Needs apiserver 0.4.22 for `scrape_kinds`;
+    # against 0.4.21 the field is absent and the screen says so.
+    version: "0.1.29"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
