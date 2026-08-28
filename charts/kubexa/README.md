@@ -16,7 +16,7 @@ bundles" below for the exact flags.
 | Valkey | `valkey` | bundled, 1Gi | `valkey.enabled=false` + `apiserver.config.upstreams.redis.addrs` and `apiserver.secrets.redisPassword*` |
 | VictoriaMetrics | `victoriaMetrics` | bundled, 30d, 20Gi | `victoriaMetrics.enabled=false` + `consumer.config.victoriaMetrics.url`, `apiserver.config.upstreams.victoriametrics.url` |
 | Loki | `loki` | bundled, 720h, 20Gi | `loki.enabled=false` + `consumer.config.loki.url`, `apiserver.config.upstreams.loki.url` |
-| NATS | `nats` | bundled | `nats.enabled=false` + `agentserver.config.nats.url`, `consumer.config.nats.url` |
+| NATS | `nats` | bundled | `nats.enabled=false` + `agentserver.config.nats.url`, `consumer.config.nats.url`, and both `natsPasswordSecret` refs |
 
 Every one of those "turn it off with" lists is enforced: `templates/guards.yaml`
 fails the render if a store is disabled and something is still pointed at the
@@ -70,10 +70,10 @@ match.
 | Toggle | Default | Effect when `false` |
 |---|---|---|
 | `postgres.enabled` | `true` | No Postgres StatefulSet/Service/Secret is rendered. Point `apiserver.config.upstreams.postgres.{app,users}.host` and `consumer.config.{postgres,usersDb}` at your own instance instead — `templates/guards.yaml` fails the render if either is still left pointed at the bundled Service while `postgres.enabled=false`. |
-| `valkey.enabled` | `true` | No Valkey StatefulSet/Service/Secret is rendered. Point `apiserver.config.upstreams.redis.addrs` at your own Redis- or Valkey-compatible instance instead. |
+| `valkey.enabled` | `true` | No Valkey StatefulSet/Service/Secret is rendered. Point `apiserver.config.upstreams.redis.addrs` at your own Redis- or Valkey-compatible instance and move `apiserver.secrets.redisPasswordSecret.name` off the bundled Secret instead — `templates/guards.yaml` fails the render if either is still left pointed at the bundled Service while `valkey.enabled=false`. |
 | `victoriaMetrics.enabled` | `true` | No VictoriaMetrics StatefulSet/Service is rendered. Point `consumer.config.victoriaMetrics.url` and `apiserver.config.upstreams.victoriametrics.url` at your own instance instead — `templates/guards.yaml` fails the render if either is still left pointed at the bundled Service while `victoriaMetrics.enabled=false`. |
 | `loki.enabled` | `true` | No Loki StatefulSet/Service is rendered. Point `consumer.config.loki.url` and `apiserver.config.upstreams.loki.url` at your own instance instead — `templates/guards.yaml` fails the render if either is still left pointed at the bundled Service while `loki.enabled=false`. |
-| `nats.enabled` | `true` | No NATS StatefulSet/Service/Secret is rendered. Point `agentserver.config.nats.url` and `consumer.config.nats.url` at your own NATS instance instead — `templates/guards.yaml` fails the render if either is still left at the bundled Service's address while `nats.enabled=false`. |
+| `nats.enabled` | `true` | No NATS StatefulSet/Service/Secret is rendered. Point `agentserver.config.nats.url` and `consumer.config.nats.url` at your own NATS instance, and move both `natsPasswordSecret.name` refs off the bundled Secret, instead — `templates/guards.yaml` fails the render if any of the four is still left at the bundled Service's name while `nats.enabled=false`. |
 | `apiserver.enabled` | `true` | The `kubexa-apiserver` dependency is skipped entirely (it's the chart's `condition`). |
 | `agentserver.enabled` | `true` | The `kubexa-agentserver` dependency is skipped entirely. Use this if you're installing it separately (e.g. with its own ingress) or not running it at all yet. |
 | `consumer.enabled` | `true` | The `kubexa-consumer` dependency is skipped entirely. Telemetry then accumulates in the NATS stream unread until a consumer (bundled or otherwise) pulls from it. |
@@ -228,7 +228,7 @@ The backpressure-subject check only runs while
 `false` the consumer publishes no leases at all, which is a deliberate
 degraded state, not a mismatch to fail on.
 
-## Loki / VictoriaMetrics URL agreement
+## Loki / VictoriaMetrics / Postgres agreement
 
 `apiserver.config.upstreams.loki.url` (what the log API reads) and
 `consumer.config.loki.url` (what the consumer writes) must be the same
@@ -244,6 +244,18 @@ healthy while the other never receives anything to serve. Both sides empty is
 deliberately not guarded: that is the legitimate "this install does not use
 Loki/VictoriaMetrics at all" state, and neither chart defaults either URL, so
 a stock install starts in exactly that state.
+
+The same shape guards Postgres, the third store both components share:
+`apiserver.config.upstreams.postgres.app.host` must agree with
+`consumer.config.postgres.host` (both are the telemetry/application
+database), and `apiserver.config.upstreams.postgres.users.host` must agree
+with `consumer.config.usersDb.host` (both are the identity/users registry).
+With either pair apart, every pod stays Ready while the apiserver serves
+from one Postgres and the consumer writes telemetry into another — every
+telemetry screen returns empty, with nothing naming the cause. Unlike the
+`postgres.enabled=false` guards above (which only catch a pointer left at
+the bundled Service's *name*), this one catches two *different* external
+instances too, and it applies whether or not `postgres.enabled` is `true`.
 
 ## Bundling the web UI
 
@@ -306,6 +318,33 @@ release, or install into separate namespaces instead — the umbrella has no
 equivalent override for the NATS/agentserver/consumer Service names, so a
 second bundled NATS or agentserver in one namespace isn't supported at all
 today.
+
+## Testing
+
+`charts/kubexa/tests/render.sh` renders this chart under every profile in
+`charts/kubexa/tests/profiles/` and asserts against each render — that the
+stores this chart is supposed to bundle actually rendered, that the wiring
+between components matches what each guard above claims to enforce, and that
+every `half-thrown-*` profile (one store's pointers deliberately left behind)
+fails to render with that guard's own message, not some other guard's.
+
+```bash
+helm dependency update charts/kubexa   # only needed if charts/kubexa/charts/ is empty
+charts/kubexa/tests/render.sh          # every profile
+charts/kubexa/tests/render.sh default  # one profile
+```
+
+Requires `helm` 3 and [`kubeconform`](https://github.com/yannh/kubeconform)
+on `PATH`. It also works under `/bin/bash` 3.2 (macOS's own, not Homebrew's)
+as well as a modern bash — it deliberately avoids bash-4-only constructs like
+`declare -A`, since this is the only place the half-thrown/guard mapping is
+defined. `.github/workflows/umbrella-release.yaml` runs it on every push to
+`main` that touches this chart, before packaging — a chart that fails this
+script never reaches GHCR.
+
+`default` and `external-stores` are the two profiles expected to render
+cleanly; every `half-thrown-*` profile is expected to fail, and the script
+checks that it failed for the *right* reason, not merely that it failed.
 
 ## Component documentation
 
