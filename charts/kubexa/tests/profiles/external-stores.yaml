@@ -23,12 +23,23 @@ apiserver:
       postgres:
         app:
           host: pg.example.internal
+          # The bundled default (disable) is only correct for the ClusterIP
+          # Service with no certificate; a Postgres reached over a network
+          # must not send credentials and every row in clear.
+          sslMode: require
         users:
           host: pg.example.internal
+          sslMode: require
   secrets:
     redisPasswordSecret:
       name: ""
     redisPassword: ""
+    postgresAppPasswordSecret:
+      name: ""
+    postgresAppPassword: "app-password-example"
+    postgresUsersPasswordSecret:
+      name: ""
+    postgresUsersPassword: "users-password-example"
 agentserver:
   config:
     nats:
@@ -40,3 +51,14 @@ consumer:
   config:
     nats:
       url: nats://nats.example.internal:4222
+    postgres:
+      host: pg.example.internal
+      sslMode: require
+    usersDb:
+      host: pg.example.internal
+      sslMode: require
+  secrets:
+    postgresPasswordSecret:
+      name: ""
+    usersDbPasswordSecret:
+      name: ""

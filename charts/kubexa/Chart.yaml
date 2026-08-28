@@ -296,7 +296,14 @@ dependencies:
     #
     # It also puts `scrape_kinds` on the fleet ingestion contract, which app
     # 0.1.29 renders.
-    version: "0.4.22"
+    #
+    # 0.4.23 changes no template output under this chart's previous values:
+    # it adds secrets.postgresAppPasswordSecret / postgresUsersPasswordSecret,
+    # the {name, key} seam that lets the bundled Postgres's generated password
+    # reach both the migrate initContainer and the server. Before it there was
+    # no way to hand a subchart a password generated at render time, so the
+    # bundled Postgres below could not have existed.
+    version: "0.4.23"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats

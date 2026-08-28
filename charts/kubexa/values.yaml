@@ -193,9 +193,21 @@ apiserver:
           - kubexa-valkey:6379
       postgres:
         app:
-          host: ""
+          host: kubexa-postgres
+          database: kubexa_app
+          user: kubexa_app
+          # The bundled Postgres is a ClusterIP Service with no certificate,
+          # so `require` -- the apiserver chart's own default, and the right
+          # default for a database across a network -- fails the connection
+          # outright. Turn postgres.enabled off and this must go back to
+          # require; templates/guards.yaml refuses the combination that
+          # leaves it here.
+          sslMode: disable
         users:
-          host: ""
+          host: kubexa-postgres
+          database: kubexa_users
+          user: kubexa_users
+          sslMode: disable
       agentserver:
         # -internal, not the plain Service: an earlier task moved the admin
         # port onto a second, always-ClusterIP Service so that a LoadBalancer
@@ -245,6 +257,15 @@ apiserver:
     redisPasswordSecret:
       name: kubexa-valkey-auth
       key: password
+    # By reference, not by value: templates/postgres-secret.yaml generates
+    # these at render time and a generated value cannot travel through values
+    # into a sibling chart. Requires kubexa-apiserver >= 0.4.23.
+    postgresAppPasswordSecret:
+      name: kubexa-postgres-auth
+      key: app-password
+    postgresUsersPasswordSecret:
+      name: kubexa-postgres-auth
+      key: users-password
     # Never rendered into config, only this Secret key -- see
     # config.notifications.webPush above. Empty by default, same as every
     # other credential in this file; it never appears in this repo by value.
@@ -335,7 +356,29 @@ consumer:
     nats:
       url: nats://kubexa-nats:4222
       username: kubexa
+    # The telemetry writer.
+    postgres:
+      host: kubexa-postgres
+      port: 5432
+      username: kubexa_app
+      database: kubexa_app
+      sslMode: disable
+    # The cluster registry, NOT an optional extra: it resolves each cluster's
+    # namespace into the X-Scope-OrgID every Loki push carries, and the
+    # consumer's Validate() refuses a non-empty loki.url with no usersDb.
+    usersDb:
+      host: kubexa-postgres
+      port: 5432
+      username: kubexa_users
+      database: kubexa_users
+      sslMode: disable
   secrets:
     natsPasswordSecret:
       name: kubexa-nats-auth
       key: password
+    postgresPasswordSecret:
+      name: kubexa-postgres-auth
+      key: app-password
+    usersDbPasswordSecret:
+      name: kubexa-postgres-auth
+      key: users-password
