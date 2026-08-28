@@ -116,7 +116,24 @@ assert_bundled_vm() {
   # though grep matched -- reproduced empirically as an intermittent FAIL on
   # this exact assertion (kubexa-victoriametrics renders near the top of the
   # manifest, so this was not theoretical).
-  grep -q 'kubexa-victoriametrics' <<< "$out" \
+  #
+  # Anchored on an object NAME ("name: kubexa-victoriametrics" at end of
+  # line), not a bare substring, for the same reason assert_bundled_loki is:
+  # apiserver.config.upstreams.victoriametrics.url and
+  # consumer.config.victoriaMetrics.url both render "kubexa-victoriametrics"
+  # too (inside "http://kubexa-victoriametrics:8428"), so a plain
+  # `grep -q 'kubexa-victoriametrics'` stays green even with
+  # victoriaMetrics.server.fullnameOverride moved back to the top-level
+  # victoriaMetrics.fullnameOverride -- which renders every VM object as
+  # "kubexa-victoriametrics-server" while the URL literals still say
+  # "kubexa-victoriametrics" -- measured against the real render, the exact
+  # regression an earlier task already had to fix once. Every object this
+  # subchart's server.fullnameOverride produces (ServiceAccount, Service,
+  # StatefulSet) is named exactly "kubexa-victoriametrics" with nothing after
+  # it on that line; the URL literal is never at end-of-line
+  # ("...kubexa-victoriametrics:8428"" always follows), so the anchor
+  # excludes it by construction.
+  grep -q 'name: kubexa-victoriametrics$' <<< "$out" \
     || { fail "$profile: no VictoriaMetrics objects rendered"; return; }
   grep -q 'url: "http://kubexa-victoriametrics:8428"' <<< "$out" \
     || { fail "$profile: nothing points at the bundled VictoriaMetrics"; return; }
@@ -204,13 +221,39 @@ assert_notes_report_the_stores() {
   # stays green even with the three Components lines below deleted outright
   # -- proven empirically (see task-8-report.md's fix section) and NOT a
   # hypothetical: that was this assertion's original, broken form. Extract
-  # just the block between "Components:" and the next blank line and match
-  # the literal rendered line prefix there instead, so the check can only
-  # pass because the Components list itself names the store.
-  components=$(awk '/^Components:$/{flag=1; next} /^$/{flag=0} flag' <<< "$notes")
+  # just the block between "Components:" and the first line that is not a
+  # component entry, and match the literal rendered line prefix there
+  # instead, so the check can only pass because the Components list itself
+  # names the store.
+  #
+  # Stop on the first non-component CONTENT line, not the first blank line:
+  # the WARNING paragraphs below the block are separated from it by a blank
+  # line today, but a blank line landing INSIDE the block for any reason
+  # (a future component added above the last one, a template edit) would
+  # truncate extraction right there under the old "reset on blank" rule and
+  # fail every prefix below it that still rendered fine -- a false failure,
+  # not a real one. So blank lines are skipped, not treated as the
+  # terminator; only a non-blank line that isn't shaped like "  <word>:" (a
+  # WARNING: paragraph, "Next steps", ...) ends the block.
+  components=$(awk '
+    /^Components:$/ { flag=1; next }
+    flag {
+      if ($0 == "") next
+      if ($0 !~ /^  [a-zA-Z]+:/) exit
+      print
+    }
+  ' <<< "$notes")
+  # Requires a POPULATED value, not just a non-empty one: "disabled" is
+  # itself valid content, but VM's own line has rendered
+  # "enabled (:8428, retention 30d)" for real -- an empty host substituted
+  # ahead of the port -- with something present right after the prefix
+  # ("enabled") the whole time, so a bare "non-empty after the prefix" check
+  # stays green on exactly the bug this exists to catch. Require either the
+  # literal "disabled", or "enabled (<non-empty-token>:" -- the hostname
+  # field before the first ":" inside the parens must itself be non-empty.
   for prefix in "postgres:" "victoria:" "loki:"; do
-    grep -q "^  $prefix" <<< "$components" \
-      || fail "$profile: NOTES.txt Components: block does not report \"$prefix\""
+    grep -Eq "^  ${prefix}[[:space:]]+(disabled|enabled \([^:()]+:)" <<< "$components" \
+      || fail "$profile: NOTES.txt Components: block does not report a populated value for \"$prefix\""
   done
   ok "$profile: NOTES report the stores"
 }
