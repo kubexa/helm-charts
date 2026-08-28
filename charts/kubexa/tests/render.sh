@@ -186,13 +186,25 @@ assert_consumer_users_db_present_with_loki() {
 # half-thrown* profiles are each ONE store disabled with every pointer left
 # behind, so they must FAIL to render -- the failure and its message are the
 # assertion, not a successful render. Helm stops at the first `fail`, so each
-# profile is built to trip exactly one guard; map the profile name to the
-# needle its guard message must contain.
-declare -A HALF_THROWN_NEEDLE=(
-  [half-thrown]="postgres.enabled=false"
-  [half-thrown-vm]="victoriaMetrics.enabled=false"
-  [half-thrown-loki]="loki.enabled=false"
-)
+# profile is built to trip exactly one guard. half_thrown_needle maps the
+# profile name to the needle its guard message must contain.
+#
+# A `case`, not an associative array: `declare -A` requires bash 4, and
+# /bin/bash on macOS -- what `#!/usr/bin/env bash` resolves to on any machine
+# where Homebrew's bash is not first on PATH -- is 3.2. There `declare -A`
+# is not recognised, `[half-thrown]=...` is then parsed as an indexed-array
+# arithmetic subscript ("half - thrown"), and under `set -u` the script
+# aborts immediately with "half: unbound variable" before a single profile
+# runs. This harness exists to run locally without a CI runner, so it must
+# work on the platform's own shell.
+half_thrown_needle() {
+  case "$1" in
+    half-thrown)      echo "postgres.enabled=false" ;;
+    half-thrown-vm)   echo "victoriaMetrics.enabled=false" ;;
+    half-thrown-loki) echo "loki.enabled=false" ;;
+    *)                echo "" ;;
+  esac
+}
 
 # ── driver ──────────────────────────────────────────────────────────────────
 profiles=("$@")
@@ -202,7 +214,7 @@ fi
 
 for profile in "${profiles[@]}"; do
   echo "profile: $profile"
-  needle="${HALF_THROWN_NEEDLE[$profile]:-}"
+  needle="$(half_thrown_needle "$profile")"
   if ! out=$(render_profile "$profile"); then
     if [ -n "$needle" ]; then
       # This profile is SUPPOSED to fail. Assert the guard that fired.
