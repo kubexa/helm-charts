@@ -183,6 +183,26 @@ assert_consumer_users_db_present_with_loki() {
   ok "$profile: loki/usersDb pairing"
 }
 
+assert_notes_report_the_stores() {
+  local out=$1 profile=$2
+  [ "$profile" = "default" ] || return 0
+  # NOTES.txt is not part of `helm template` output; render it separately.
+  # `--show-only templates/NOTES.txt` does not work on every Helm version --
+  # NOTES is rendered into the install output, not the manifest, and on the
+  # pinned Helm (v4.2.2) it errors: "could not find template
+  # templates/NOTES.txt in chart". `helm install --dry-run` renders client-
+  # side (no cluster write, confirmed against an unreachable KUBECONFIG) and
+  # prints a trailing "NOTES:" section identical to what `helm install` for
+  # real would show; pull that section out instead.
+  local install_out notes
+  install_out=$(helm install kubexa "$CHART" -f "$PROFILES_DIR/$profile.yaml" --dry-run 2>&1) || true
+  notes=$(awk '/^NOTES:$/{flag=1; next} flag' <<< "$install_out")
+  for store in Postgres VictoriaMetrics Loki; do
+    grep -qi "$store" <<< "$notes" || fail "$profile: NOTES.txt does not mention $store"
+  done
+  ok "$profile: NOTES report the stores"
+}
+
 # half-thrown* profiles are each ONE store disabled with every pointer left
 # behind, so they must FAIL to render -- the failure and its message are the
 # assertion, not a successful render. Helm stops at the first `fail`, so each
