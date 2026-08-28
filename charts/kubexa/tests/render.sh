@@ -457,6 +457,7 @@ half_thrown_needle() {
     half-thrown-postgres-split-users)      echo "differs from consumer.config.usersDb.host" ;;
     half-thrown-backup-encryption)         echo "backup.enabled=true requires backup.encryption.existingSecret.name" ;;
     half-thrown-backup-vm-url)             echo "backup.enabled=true requires backup.victoriaMetrics.url" ;;
+    half-thrown-vm-backup)                 echo "backup.victoriaMetrics.url is still" ;;
     half-thrown-backup-s3-bucket)          echo "backup.destination.driver=s3 requires backup.destination.s3.bucket" ;;
     half-thrown-backup-filesystem-claim)   echo "backup.destination.driver=filesystem requires backup.destination.filesystem.existingClaim" ;;
     half-thrown-backup-driver)             echo "is not supported; use s3 or filesystem" ;;

@@ -1,0 +1,34 @@
+# VictoriaMetrics off, the consumer and apiserver pointers moved off the
+# bundled Service -- and backup.victoriaMetrics.url left behind at it. This
+# profile MUST fail to render. It is the quietest of the three pointers: a
+# failed metrics push is logged, not fatal, so without this guard the backup
+# runs correctly every night while KubexaBackupStale pages on a metric that
+# nothing can write.
+victoriaMetrics:
+  enabled: false
+backup:
+  enabled: true
+  encryption:
+    existingSecret:
+      name: kubexa-backup-encryption
+  destination:
+    driver: filesystem
+    filesystem:
+      existingClaim: kubexa-backup-pvc
+consumer:
+  config:
+    victoriaMetrics:
+      url: http://vm.example.com:8428
+app:
+  ingress:
+    host: kubexa.example.com
+apiserver:
+  ingress:
+    enabled: true
+    host: kubexa.example.com
+  config:
+    corsAllowedOrigins:
+      - https://kubexa.example.com
+    upstreams:
+      victoriametrics:
+        url: http://vm.example.com:8428
