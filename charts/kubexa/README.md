@@ -245,8 +245,8 @@ deliberately not guarded: that is the legitimate "this install does not use
 Loki/VictoriaMetrics at all" state, and neither chart defaults either URL, so
 a stock install starts in exactly that state.
 
-The same shape guards Postgres, the third store both components share:
-`apiserver.config.upstreams.postgres.app.host` must agree with
+A similarly-shaped guard covers Postgres, the third store both components
+share: `apiserver.config.upstreams.postgres.app.host` must agree with
 `consumer.config.postgres.host` (both are the telemetry/application
 database), and `apiserver.config.upstreams.postgres.users.host` must agree
 with `consumer.config.usersDb.host` (both are the identity/users registry).
@@ -256,6 +256,16 @@ telemetry screen returns empty, with nothing naming the cause. Unlike the
 `postgres.enabled=false` guards above (which only catch a pointer left at
 the bundled Service's *name*), this one catches two *different* external
 instances too, and it applies whether or not `postgres.enabled` is `true`.
+
+The "both sides empty" exemption above does NOT apply here, and can't: the
+apiserver's two Postgres hosts are mandatory in `kubexa-apiserver`'s
+`values.schema.json`, so that side is never empty. Instead, an empty
+**consumer** side is read as the deliberate disabled state its own chart
+documents — `consumer.config.postgres.host` empty disables the telemetry
+writer, `consumer.config.usersDb.host` empty disables the cluster registry
+(required whenever `consumer.config.loki.url` is set; see the
+loki-url-without-usersDb guard above) — so each pair is only checked while
+the consumer side is non-empty.
 
 ## Bundling the web UI
 
