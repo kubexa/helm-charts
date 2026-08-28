@@ -55,6 +55,9 @@ agentserver:
     redis:
       addrs:
         - redis.example.internal:6379
+  secrets:
+    natsPasswordSecret:
+      name: ""
 consumer:
   config:
     nats:
@@ -70,6 +73,8 @@ consumer:
     loki:
       url: http://loki.example.internal:3100
   secrets:
+    natsPasswordSecret:
+      name: ""
     postgresPasswordSecret:
       name: ""
     usersDbPasswordSecret:
