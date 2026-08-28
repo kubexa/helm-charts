@@ -1,0 +1,11 @@
+# Postgres stays bundled/enabled; only the apiserver's APP database host is
+# moved, the consumer's is not. Must FAIL on the apiserver/consumer Postgres
+# split guard's app-pairing arm (templates/guards.yaml) -- independent of
+# postgres.enabled, since the point is the two components disagreeing about
+# where Postgres is, not whether it is bundled.
+apiserver:
+  config:
+    upstreams:
+      postgres:
+        app:
+          host: pg.example.internal

@@ -6,8 +6,27 @@ sides.
 */ -}}
 {{- if and (not .Values.valkey.enabled) .Values.apiserver.enabled }}
 {{- $valkeyAuthSecret := printf "%s-auth" (include "kubexa.valkeyFullname" .) }}
+{{- /*
+%v, not a hardcoded 6379: valkey.port is a real key (NOTES.txt:15 already
+builds the identical "%s:%v" pair from it), so a literal port here would
+miss a bundled Valkey moved to a non-default port -- proved by rendering
+with valkey.port changed and the addrs left at the old bundled address: a
+hardcoded 6379 stays green on exactly the defect this arm exists to catch.
+*/ -}}
+{{- $bundledValkeyAddr := printf "%s:%v" (include "kubexa.valkeyFullname" .) .Values.valkey.port }}
 {{- if eq .Values.apiserver.secrets.redisPasswordSecret.name $valkeyAuthSecret }}
 {{- fail (printf "valkey.enabled=false but apiserver.secrets.redisPasswordSecret.name is still %q, the Secret templates/valkey-secret.yaml would have generated for the bundled Valkey. With valkey disabled that Secret is never rendered, and kubexa-apiserver's KUBEXA_APISERVER_REDIS_PASSWORD secretKeyRef is deliberately non-optional, so the apiserver pod fails with CreateContainerConfigError: secret %q not found. Pick one: (1) set apiserver.secrets.redisPasswordSecret.name to \"\" and set apiserver.secrets.redisPassword to your Redis instance's password (or leave both empty if it needs none), or (2) point apiserver.secrets.redisPasswordSecret.name (and .key) at a Secret you created yourself." $valkeyAuthSecret $valkeyAuthSecret) }}
+{{- end }}
+{{- /*
+The OTHER half of the same "turn it off" list: apiserver.config.upstreams.
+redis.addrs itself, not just the Secret it authenticates with. Left behind,
+the apiserver dials an address that resolves to nothing -- and Redis is a
+SOFT readiness dependency (internal/apiserver's readiness check), so the pod
+stays Ready throughout while rate limiting, notification fan-out and
+demand-driven watch leases silently stop, with nothing naming the cause.
+*/ -}}
+{{- if has $bundledValkeyAddr .Values.apiserver.config.upstreams.redis.addrs }}
+{{- fail (printf "valkey.enabled=false but apiserver.config.upstreams.redis.addrs still contains %q, the bundled Valkey's Service address. That Service is never rendered with valkey disabled, so the apiserver dials an address that resolves to nothing. Redis is a SOFT readiness dependency, so the pod stays Ready throughout while rate limiting, notification fan-out and demand-driven watch leases silently stop, with nothing naming the cause. Point apiserver.config.upstreams.redis.addrs at your own Redis- or Valkey-compatible instance." $bundledValkeyAddr) }}
 {{- end }}
 {{- end }}
 
@@ -23,11 +42,38 @@ cause anywhere a first-time reader would look.
 */ -}}
 {{- if not .Values.nats.enabled }}
 {{- $bundledNatsURL := "nats://kubexa-nats:4222" }}
+{{- /*
+Literal "kubexa-nats-auth", not derived from nats.fullnameOverride: unlike
+the bundled URL above (which really is built from that value, since NATS's
+own Service name follows fullnameOverride), templates/nats-secret.yaml:2
+hardcodes its Secret's name outright. values.yaml explicitly contemplates
+changing nats.fullnameOverride; a derived name would then compare against a
+Secret name nothing generates and miss the real leftover -- proved by
+rendering with nats.fullnameOverride changed and both natsPasswordSecret
+refs left at "kubexa-nats-auth": a derived comparison stays green on exactly
+the defect this arm exists to catch.
+*/ -}}
+{{- $bundledNatsSecret := "kubexa-nats-auth" }}
 {{- if and .Values.agentserver.enabled (eq .Values.agentserver.config.nats.url $bundledNatsURL) }}
 {{- fail (printf "nats.enabled=false but agentserver.config.nats.url is still %q, the bundled NATS chart's Service name. That Service is never rendered with nats disabled, so the agentserver dials a name that resolves to nothing. Point agentserver.config.nats.url at your own NATS instance." $bundledNatsURL) }}
 {{- end }}
 {{- if and .Values.consumer.enabled (eq .Values.consumer.config.nats.url $bundledNatsURL) }}
 {{- fail (printf "nats.enabled=false but consumer.config.nats.url is still %q, the bundled NATS chart's Service name. That Service is never rendered with nats disabled, so the consumer dials a name that resolves to nothing and /readyz never turns ready. Point consumer.config.nats.url at your own NATS instance." $bundledNatsURL) }}
+{{- end }}
+{{- /*
+The Secret half of the same "turn it off" list. templates/nats-secret.yaml is
+never rendered with nats disabled, and both kubexa-agentserver's and
+kubexa-consumer's NATS password secretKeyRef are deliberately non-optional --
+same contract as the Postgres Secret guards below -- so a Secret reference
+left pointed at the bundled name fails the pod outright with
+CreateContainerConfigError, rather than the quieter "dials nothing" failure
+the URL guards above cover.
+*/ -}}
+{{- if and .Values.agentserver.enabled (eq .Values.agentserver.secrets.natsPasswordSecret.name $bundledNatsSecret) }}
+{{- fail (printf "nats.enabled=false but agentserver.secrets.natsPasswordSecret.name is still %q, the Secret templates/nats-secret.yaml would have generated. That Secret is never rendered with nats disabled, and kubexa-agentserver's NATS password secretKeyRef is deliberately non-optional, so the pod fails with CreateContainerConfigError: secret %q not found -- precisely the failure mode this chart's own Postgres Secret guards exist to prevent. Point agentserver.secrets.natsPasswordSecret.name at a Secret you created yourself, or set .name to \"\" to leave that credential unset." $bundledNatsSecret $bundledNatsSecret) }}
+{{- end }}
+{{- if and .Values.consumer.enabled (eq .Values.consumer.secrets.natsPasswordSecret.name $bundledNatsSecret) }}
+{{- fail (printf "nats.enabled=false but consumer.secrets.natsPasswordSecret.name is still %q, the Secret templates/nats-secret.yaml would have generated. That Secret is never rendered with nats disabled, and kubexa-consumer's NATS password secretKeyRef is deliberately non-optional, so the pod fails with CreateContainerConfigError: secret %q not found. Point consumer.secrets.natsPasswordSecret.name at a Secret you created yourself, or set .name to \"\" to leave that credential unset." $bundledNatsSecret $bundledNatsSecret) }}
 {{- end }}
 {{- end }}
 
@@ -209,5 +255,180 @@ its own reason to leave these unset.
 {{- if not .Values.apiserver.config.ws.origins }}
 {{- fail (printf "app.ingress and apiserver.ingress are both enabled on %q but apiserver.config.ws.origins is empty: the WS handshake sets AllowEmptyOrigin: len(origins) == 0, which disables origin checking entirely for /api/v1/ws, so it upgrades a cross-origin connection from anywhere -- nothing renders, logs or warns. Set apiserver.config.ws.origins to [\"https://%s\"]." .Values.app.ingress.host .Values.app.ingress.host) }}
 {{- end }}
+{{- end }}
+{{- end }}
+
+{{- /*
+Postgres disabled, but the apiserver and/or the consumer are still pointed at
+the bundled instance's Service name, or still hold the Secret reference
+templates/postgres-secret.yaml would have generated. Neither object exists
+with postgres disabled: the apiserver's migrate initContainer stops with
+CreateContainerConfigError on a Secret that is not there -- and if only the
+host was left behind, it instead resolves nothing and crash-loops before the
+server starts. The consumer is quieter still: its Postgres writer simply
+never connects.
+*/ -}}
+{{- if not .Values.postgres.enabled }}
+{{- $bundledHost := .Values.postgres.serviceName }}
+{{- $bundledSecret := printf "%s-auth" .Values.postgres.serviceName }}
+{{- if .Values.apiserver.enabled }}
+{{- if or (eq .Values.apiserver.config.upstreams.postgres.app.host $bundledHost) (eq .Values.apiserver.config.upstreams.postgres.users.host $bundledHost) }}
+{{- fail (printf "postgres.enabled=false but apiserver.config.upstreams.postgres.{app,users}.host is still %q, the bundled Postgres's Service name. That Service is never rendered with postgres disabled, so the migrate initContainer dials a name that resolves to nothing and crash-loops the install before the server starts. Point both hosts at your own Postgres." $bundledHost) }}
+{{- end }}
+{{- if or (eq .Values.apiserver.secrets.postgresAppPasswordSecret.name $bundledSecret) (eq .Values.apiserver.secrets.postgresUsersPasswordSecret.name $bundledSecret) }}
+{{- fail (printf "postgres.enabled=false but apiserver.secrets.postgres{App,Users}PasswordSecret.name is still %q, the Secret templates/postgres-secret.yaml would have generated. That Secret is never rendered with postgres disabled, and the reference is deliberately not optional, so the pod fails with CreateContainerConfigError: secret %q not found. Point both at a Secret you created, or set .name to \"\" and use apiserver.secrets.postgresAppPassword / postgresUsersPassword instead." $bundledSecret $bundledSecret) }}
+{{- end }}
+{{- end }}
+{{- if .Values.consumer.enabled }}
+{{- if or (eq .Values.consumer.config.postgres.host $bundledHost) (eq .Values.consumer.config.usersDb.host $bundledHost) }}
+{{- fail (printf "postgres.enabled=false but consumer.config.{postgres,usersDb}.host is still %q, the bundled Postgres's Service name. The consumer's writers then never connect and its readiness never turns ready, with nothing naming Postgres as the cause. Point both at your own Postgres." $bundledHost) }}
+{{- end }}
+{{- if or (eq .Values.consumer.secrets.postgresPasswordSecret.name $bundledSecret) (eq .Values.consumer.secrets.usersDbPasswordSecret.name $bundledSecret) }}
+{{- fail (printf "postgres.enabled=false but consumer.secrets.{postgresPasswordSecret,usersDbPasswordSecret}.name is still %q, the Secret templates/postgres-secret.yaml would have generated. That Secret is never rendered with postgres disabled, and kubexa-consumer's secretKeyRef is deliberately not optional (same contract as the apiserver's), so the pod fails outright with CreateContainerConfigError: secret %q not found -- the container never starts, so /healthz and /readyz never even run and nothing distinguishes this from any other pull-image or scheduling failure. This chart owns no Secret of its own to fall back to: point both at a Secret you created, or set .name to \"\" to leave that credential unset." $bundledSecret $bundledSecret) }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- /*
+sslMode left at `disable` while pointed at a Postgres this chart did not
+bundle. `disable` is correct for the bundled instance -- a ClusterIP Service
+with no certificate -- and wrong for anything reached across a network: the
+connection succeeds and the credentials and every row cross the wire in
+clear. The apiserver chart's own default is `require`, so this state can only
+be reached by leaving this chart's bundled-instance value behind. The
+consumer's own sslMode default is also `disable`, with no bundled-instance
+qualifier at all in kubexa-consumer's own values.yaml -- it reaches a
+networked Postgres in clear exactly the same way, just through a different
+component: its telemetry writer and its usersDb registry lookups, not the
+apiserver's API.
+*/ -}}
+{{- if and (not .Values.postgres.enabled) .Values.apiserver.enabled }}
+{{- if or (eq .Values.apiserver.config.upstreams.postgres.app.sslMode "disable") (eq .Values.apiserver.config.upstreams.postgres.users.sslMode "disable") }}
+{{- fail "postgres.enabled=false but apiserver.config.upstreams.postgres.{app,users}.sslMode is still \"disable\", the value this chart sets for the bundled instance because it is a ClusterIP Service with no certificate. Against a Postgres reached over a network that setting sends the password and every row in clear. Set both to \"require\" (the apiserver chart's own default) or to \"verify-full\" with a root certificate." }}
+{{- end }}
+{{- end }}
+{{- if and (not .Values.postgres.enabled) .Values.consumer.enabled }}
+{{- if or (eq .Values.consumer.config.postgres.sslMode "disable") (eq .Values.consumer.config.usersDb.sslMode "disable") }}
+{{- fail "postgres.enabled=false but consumer.config.{postgres,usersDb}.sslMode is still \"disable\", the value this chart sets for the bundled instance because it is a ClusterIP Service with no certificate. Against a Postgres reached over a network that setting sends the telemetry writer's and the usersDb registry lookup's password, and every row either writes or reads, in clear. Set both to \"require\" or to \"verify-full\" with a root certificate." }}
+{{- end }}
+{{- end }}
+
+{{- /*
+VictoriaMetrics disabled with the bundled endpoint left behind. The
+consumer's remote-write silently retries into a name that resolves to
+nothing, and the apiserver's metric screens answer with an error the UI shows
+as an empty chart -- which is exactly the "a failed query became a zero"
+failure this product has a rule against.
+
+The bundled URL is built from victoriaMetrics.server.fullnameOverride, not a
+top-level victoriaMetrics.fullnameOverride: this chart's "vm.plain.fullname"
+helper always suffixes a top-level override with "-server" (see the comment
+on victoriaMetrics.server.fullnameOverride in values.yaml), so the override
+that actually names the rendered Service lives under .server.
+*/ -}}
+{{- if not .Values.victoriaMetrics.enabled }}
+{{- $bundledVM := printf "http://%s:8428" .Values.victoriaMetrics.server.fullnameOverride }}
+{{- if and .Values.consumer.enabled (eq .Values.consumer.config.victoriaMetrics.url $bundledVM) }}
+{{- fail (printf "victoriaMetrics.enabled=false but consumer.config.victoriaMetrics.url is still %q, the bundled instance's Service name. Point it at your own VictoriaMetrics, or set it to \"\" to disable the writer deliberately." $bundledVM) }}
+{{- end }}
+{{- if and .Values.apiserver.enabled (eq .Values.apiserver.config.upstreams.victoriametrics.url $bundledVM) }}
+{{- fail (printf "victoriaMetrics.enabled=false but apiserver.config.upstreams.victoriametrics.url is still %q, the bundled instance's Service name. Point it at your own VictoriaMetrics, or set it to \"\" -- an empty url disables the upstream, which is an honest \"not configured\" rather than a query that fails on every screen." $bundledVM) }}
+{{- end }}
+{{- end }}
+
+{{- /*
+Loki disabled with the bundled endpoint left behind, and the reverse: a Loki
+url with no users database. The consumer's Validate() refuses the second
+combination outright, and the refusal is a line in a log nobody reads until
+logs stop arriving.
+*/ -}}
+{{- if not .Values.loki.enabled }}
+{{- $bundledLoki := printf "http://%s:3100" .Values.loki.fullnameOverride }}
+{{- if and .Values.consumer.enabled (eq .Values.consumer.config.loki.url $bundledLoki) }}
+{{- fail (printf "loki.enabled=false but consumer.config.loki.url is still %q, the bundled instance's Service name. Point it at your own Loki, or set it to \"\" to disable the writer deliberately." $bundledLoki) }}
+{{- end }}
+{{- if and .Values.apiserver.enabled (eq .Values.apiserver.config.upstreams.loki.url $bundledLoki) }}
+{{- fail (printf "loki.enabled=false but apiserver.config.upstreams.loki.url is still %q, the bundled instance's Service name. Point it at your own Loki, or set it to \"\"." $bundledLoki) }}
+{{- end }}
+{{- end }}
+
+{{- /*
+A Loki url with no users database. Independent of whether Loki is bundled:
+the consumer resolves each cluster's namespace into the X-Scope-OrgID every
+push carries, and that lookup is the users database. Its Validate() refuses
+the combination and the process exits.
+
+In practice this arm never fires: kubexa-consumer's own _helpers.tpl carries
+an equivalent check (loki.url set but usersDb not fully configured) that is
+guaranteed to run first on every render, not merely likely to -- Helm orders
+templates by path depth, deepest first, so "kubexa/charts/consumer/..."
+always renders before this chart's own "kubexa/templates/guards.yaml",
+deterministically, not as a race. The subchart's condition is also a strict
+superset of this one: it requires host, username AND database, where this
+arm checks host alone, so this arm cannot even serve as a complete fallback
+if the subchart's own guard is ever weakened. It stays here only as harmless,
+redundant defense in depth -- it is not coverage, and removing it (or
+completing it to match the subchart's three-field check) is a call for
+whoever owns both charts, not something to lean on.
+*/ -}}
+{{- if and .Values.consumer.enabled .Values.consumer.config.loki.url }}
+{{- if not .Values.consumer.config.usersDb.host }}
+{{- fail "consumer.config.loki.url is set but consumer.config.usersDb.host is empty. Loki pushes carry X-Scope-OrgID resolved from the users database, so the consumer's Validate() refuses this combination and the process exits at boot. Fill in consumer.config.usersDb, or clear loki.url." }}
+{{- end }}
+{{- end }}
+
+{{- /*
+The apiserver and the consumer pointed at DIFFERENT Postgres instances.
+Modelled on the Loki/VM read/write guard above, for the same reason: the
+apiserver reads and writes application data (clusters, alerts, auth) through
+its own upstreams.postgres, the consumer writes telemetry and resolves
+tenants through its own config.postgres/usersDb, and nothing else checks that
+the two agree. With the two apart every pod stays Ready while the apiserver
+serves from one Postgres and the consumer writes into another -- every
+telemetry screen returns empty (or data from the wrong cluster), with nothing
+naming the cause. Independent of postgres.enabled: this also catches two
+DIFFERENT external instances, which the postgres-disabled guards above --
+checking only "still says the bundled name" -- cannot.
+
+Asymmetric on purpose: the apiserver holds two Postgres upstreams (app,
+users), the consumer holds two of its own (postgres, usersDb) that are NOT a
+single pair with the apiserver's -- app pairs with postgres (both the
+telemetry/application database), users pairs with usersDb (both the identity
+registry).
+
+NOT the same "both empty is unguarded" shape as the Loki/VM pair above,
+because the two sides of each pair are not symmetric here: kubexa-apiserver's
+values.schema.json makes both upstreams.postgres.{app,users}.host mandatory,
+so the apiserver side is never empty, while kubexa-consumer's own
+values.yaml documents an empty config.postgres.host and an empty
+config.usersDb.host as the DELIBERATE "writer disabled" / "registry disabled"
+states (the same policy the sibling VictoriaMetrics/Loki-disabled guards
+above already honour explicitly -- "...or set it to \"\" to disable the
+writer deliberately"). A literal both-empty check on an apiserver value that
+can never be empty would make every one-side-empty case -- the documented
+disabled state -- a hard failure instead, which is the defect this comment
+used to describe as intentional and isn't. So this guard fires only when the
+CONSUMER side is non-empty AND differs from the apiserver side: an empty
+consumer host is read as "deliberately disabled", not as a mismatch, and
+loki-url-without-usersDb above still catches an empty usersDb paired with a
+non-empty loki.url.
+
+Placed last, after the loki-url-without-usersDb guard above, and not beside
+its Loki/VM siblings: consumer.config.usersDb.host is the exact field that
+guard also inspects, so a profile built to reach that guard by emptying only
+usersDb.host would trip an apiserver/users mismatch here first if this guard
+sat earlier in the file. Ordered last, it only ever evaluates once every
+guard above -- including that one -- has already passed.
+*/ -}}
+{{- if and .Values.apiserver.enabled .Values.consumer.enabled }}
+{{- $apiAppHost := .Values.apiserver.config.upstreams.postgres.app.host }}
+{{- $consumerAppHost := .Values.consumer.config.postgres.host }}
+{{- if and $consumerAppHost (ne $apiAppHost $consumerAppHost) }}
+{{- fail (printf "apiserver.config.upstreams.postgres.app.host (%q) differs from consumer.config.postgres.host (%q): the apiserver reads and writes application data (clusters, alerts) through the first, the consumer writes telemetry through the second. With the two apart, every pod stays Ready while the apiserver serves from one Postgres and the consumer writes telemetry into another -- every telemetry screen returns empty, with nothing naming the cause. Point both at the same Postgres instance, or clear consumer.config.postgres.host to disable the writer deliberately." $apiAppHost $consumerAppHost) }}
+{{- end }}
+{{- $apiUsersHost := .Values.apiserver.config.upstreams.postgres.users.host }}
+{{- $consumerUsersHost := .Values.consumer.config.usersDb.host }}
+{{- if and $consumerUsersHost (ne $apiUsersHost $consumerUsersHost) }}
+{{- fail (printf "apiserver.config.upstreams.postgres.users.host (%q) differs from consumer.config.usersDb.host (%q): the apiserver's identity/auth path reads the users registry through the first, the consumer's cluster-namespace-to-tenant resolution (X-Scope-OrgID for Loki pushes) reads the same registry through the second. With the two apart, the consumer resolves clusters against a different users database than the one the apiserver authenticates against, and a cluster the consumer looks up there may not exist, with nothing naming the cause. Point both at the same Postgres instance, or clear consumer.config.usersDb.host to disable the cluster registry deliberately." $apiUsersHost $consumerUsersHost) }}
 {{- end }}
 {{- end }}

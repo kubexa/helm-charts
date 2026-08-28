@@ -1,0 +1,33 @@
+# Postgres off, every apiserver and consumer host/Secret pointer moved to an
+# external instance, but sslMode left at the bundled instance's "disable".
+# Must FAIL on the apiserver sslMode guard (templates/guards.yaml), not any
+# postgres-disabled host/secret arm above it -- every one of those is moved
+# specifically so they do not fire first.
+postgres:
+  enabled: false
+apiserver:
+  config:
+    upstreams:
+      postgres:
+        app:
+          host: pg.example.internal
+        users:
+          host: pg.example.internal
+  secrets:
+    postgresAppPasswordSecret:
+      name: ""
+    postgresAppPassword: "app-password-example"
+    postgresUsersPasswordSecret:
+      name: ""
+    postgresUsersPassword: "users-password-example"
+consumer:
+  config:
+    postgres:
+      host: pg.example.internal
+    usersDb:
+      host: pg.example.internal
+  secrets:
+    postgresPasswordSecret:
+      name: ""
+    usersDbPasswordSecret:
+      name: ""

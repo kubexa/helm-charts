@@ -27,6 +27,16 @@ jobs:
         with:
           version: v4.2.2
 
+      # Same version and install shape as kubexa-backend's own `chart` CI
+      # job (.github/workflows/ci.yml): tests/render.sh's kubeconform
+      # assertion needs it on PATH the same way that job does.
+      - name: Install kubeconform
+        run: |
+          curl -sSLo kubeconform.tar.gz \
+            https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          tar xf kubeconform.tar.gz kubeconform
+          sudo mv kubeconform /usr/local/bin/
+
       # Resolved BEFORE logging in, and the order is load-bearing. The
       # component charts are public, so an anonymous pull works -- but
       # GITHUB_TOKEN is scoped to THIS repository, and the packages belong to
@@ -39,18 +49,18 @@ jobs:
       - name: Resolve dependencies
         run: helm dependency update $CHART_PATH
 
+      # No --set overrides: the chart renders its own defaults now (the
+      # bundled Postgres), which is the exact defect this branch closed --
+      # the two pg.example.com overrides that used to be required here are
+      # gone for the same reason.
       - name: Lint
         run: |
           helm lint $CHART_PATH \
-            --set apiserver.config.upstreams.postgres.app.host=pg.example.com \
-            --set apiserver.config.upstreams.postgres.users.host=pg.example.com \
             --set apiserver.config.upstreams.agentserver.controlAddr=agentserver.example.com:50052
 
       - name: Render
         run: |
           helm template kubexa $CHART_PATH \
-            --set apiserver.config.upstreams.postgres.app.host=pg.example.com \
-            --set apiserver.config.upstreams.postgres.users.host=pg.example.com \
             --set apiserver.config.upstreams.agentserver.controlAddr=agentserver.example.com:50052 \
             > /dev/null
 
@@ -60,8 +70,6 @@ jobs:
       - name: refuses the apiserver claiming / on the app's host
         run: |
           out=$(helm template kubexa $CHART_PATH \
-            --set apiserver.config.upstreams.postgres.app.host=pg.example.com \
-            --set apiserver.config.upstreams.postgres.users.host=pg.example.com \
             --set app.ingress.enabled=true --set app.ingress.host=kubexa.example.com \
             --set apiserver.ingress.enabled=true --set apiserver.ingress.host=kubexa.example.com \
             --set apiserver.ingress.path=/ 2>&1) && status=0 || status=$?
@@ -79,8 +87,6 @@ jobs:
       - name: refuses two TLS declarations for one host
         run: |
           out=$(helm template kubexa $CHART_PATH \
-            --set apiserver.config.upstreams.postgres.app.host=pg.example.com \
-            --set apiserver.config.upstreams.postgres.users.host=pg.example.com \
             --set app.ingress.enabled=true --set app.ingress.host=kubexa.example.com \
             --set app.ingress.tls.enabled=true --set app.ingress.tls.secretName=kubexa-tls \
             --set apiserver.ingress.enabled=true --set apiserver.ingress.host=kubexa.example.com \
@@ -94,6 +100,15 @@ jobs:
             echo "$out" >&2
             exit 1
           fi
+
+      # The full harness: every profile in tests/profiles/ against every
+      # assertion, including that each half-thrown-* profile fails with its
+      # OWN guard's message, not some other guard's. Nothing above this line
+      # renders the shipping default, runs kubeconform, or touches
+      # external-stores or any half-thrown-* profile -- this is what actually
+      # gates the package/push steps below on the chart this branch built.
+      - name: Run the chart test harness
+        run: charts/kubexa/tests/render.sh
 
       - name: Get chart name and version
         id: chart_version

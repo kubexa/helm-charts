@@ -1,0 +1,6 @@
+# NATS off, nothing else moved. This profile MUST fail to render: the
+# agentserver NATS url guard (templates/guards.yaml) -- the first NATS arm
+# this render reaches. The harness asserts the failure and its message, not
+# a successful render.
+nats:
+  enabled: false

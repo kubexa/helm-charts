@@ -1,0 +1,128 @@
+{{- if .Values.postgres.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "kubexa.postgresFullname" . }}
+  labels:
+    {{- include "kubexa.postgresLabels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "kubexa.postgresFullname" . }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kubexa.postgresSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kubexa.postgresSelectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        # 70 is the postgres user in the alpine image. fsGroup makes the PVC
+        # writable by it; without it the entrypoint fails on initdb with a
+        # permission error that names the directory and not the cause.
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image | quote }}
+          env:
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ printf "%s-auth" (include "kubexa.postgresFullname" .) }}
+                  key: postgres-password
+            # PGDATA one level below the mount point: the entrypoint refuses
+            # to initdb into a directory that is not empty, and a PVC's mount
+            # point holds lost+found on several storage classes.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: KUBEXA_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ printf "%s-auth" (include "kubexa.postgresFullname" .) }}
+                  key: app-password
+            - name: KUBEXA_USERS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ printf "%s-auth" (include "kubexa.postgresFullname" .) }}
+                  key: users-password
+          ports:
+            - name: postgres
+              containerPort: {{ .Values.postgres.port }}
+              protocol: TCP
+          # pg_isready, not a tcpSocket probe: the port accepts connections
+          # while initdb and the init scripts are still running, so a socket
+          # probe reports ready on a server that answers every query with
+          # "the database system is starting up" -- and the apiserver's
+          # migrate initContainer then fails on exactly that.
+          #
+          # -h 127.0.0.1, not the bare default: with no -h, pg_isready
+          # connects over the Unix socket, not TCP. The official entrypoint
+          # runs docker-entrypoint-initdb.d against a TEMPORARY server
+          # started with -c listen_addresses='' specifically so nothing else
+          # can reach it yet -- that server's socket answers while port 5432
+          # does not, so a bare `pg_isready -U postgres` reports Ready while
+          # TCP is still closed and the databases may not exist yet, which is
+          # exactly the failure this probe exists to avoid (see the comment
+          # above): the migrate initContainer connects over TCP, fails, and
+          # the pod restarts with backoff. -h 127.0.0.1 forces the same TCP
+          # path every real client uses.
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-h", "127.0.0.1"]
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-h", "127.0.0.1"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            # NOT readOnlyRootFilesystem: the entrypoint writes to /tmp and
+            # to /var/run/postgresql on every start, and the image provides
+            # no emptyDir for either.
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+          {{- with .Values.postgres.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: init
+          configMap:
+            name: {{ printf "%s-init" (include "kubexa.postgresFullname" .) }}
+            defaultMode: 0755
+        {{- if not .Values.postgres.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+  {{- if .Values.postgres.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        {{- with .Values.postgres.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgres.persistence.size | quote }}
+  {{- end }}
+{{- end }}

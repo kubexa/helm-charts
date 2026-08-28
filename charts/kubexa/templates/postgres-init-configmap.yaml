@@ -1,0 +1,38 @@
+{{- if .Values.postgres.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-init" (include "kubexa.postgresFullname" .) }}
+  labels:
+    {{- include "kubexa.postgresLabels" . | nindent 4 }}
+data:
+  # postgres:17-alpine runs every *.sql and *.sh in
+  # /docker-entrypoint-initdb.d ONCE, on an empty data directory. On every
+  # later start -- including the first restart after this install -- the
+  # directory is not empty and none of this runs again. That is why the
+  # passwords are read back from the Secret rather than regenerated: an
+  # ALTER ROLE would need a second mechanism that does not exist here.
+  #
+  # The passwords arrive through the environment rather than being templated
+  # into this ConfigMap: a ConfigMap is not a Secret, and `kubectl get cm -o
+  # yaml` is a normal thing to do.
+  init.sh: |
+    #!/bin/sh
+    set -e
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres <<-EOSQL
+      CREATE ROLE {{ .Values.postgres.appUser }} LOGIN PASSWORD '${KUBEXA_APP_PASSWORD}';
+      CREATE ROLE {{ .Values.postgres.usersUser }} LOGIN PASSWORD '${KUBEXA_USERS_PASSWORD}';
+      CREATE DATABASE {{ .Values.postgres.appDatabase }} OWNER {{ .Values.postgres.appUser }};
+      CREATE DATABASE {{ .Values.postgres.usersDatabase }} OWNER {{ .Values.postgres.usersUser }};
+    EOSQL
+    # The migrations create every object, so ownership of the database is
+    # enough -- no per-table grants are needed or would even have anything to
+    # apply to at this point. The public schema is revoked from PUBLIC in
+    # Postgres 15+, so each owner gets its own schema privileges explicitly.
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname {{ .Values.postgres.appDatabase }} <<-EOSQL
+      GRANT ALL ON SCHEMA public TO {{ .Values.postgres.appUser }};
+    EOSQL
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname {{ .Values.postgres.usersDatabase }} <<-EOSQL
+      GRANT ALL ON SCHEMA public TO {{ .Values.postgres.usersUser }};
+    EOSQL
+{{- end }}

@@ -1,0 +1,15 @@
+# Postgres off, nothing else moved. This profile MUST fail to render: one of
+# the Postgres guards added in Task 7 (templates/guards.yaml) is the reason.
+# The harness asserts the failure and its message, not a successful render.
+postgres:
+  enabled: false
+app:
+  ingress:
+    host: kubexa.example.com
+apiserver:
+  ingress:
+    enabled: true
+    host: kubexa.example.com
+  config:
+    corsAllowedOrigins:
+      - https://kubexa.example.com

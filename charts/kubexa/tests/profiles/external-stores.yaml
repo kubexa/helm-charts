@@ -1,0 +1,81 @@
+# Every bundled store turned off and pointed at something the operator
+# already runs. Renders the OTHER half of every guard added in Task 7: if a
+# store can be switched off but the pointers are not moved with it, this
+# profile is where that shows up as a render failure.
+valkey:
+  enabled: false
+nats:
+  enabled: false
+postgres:
+  enabled: false
+victoriaMetrics:
+  enabled: false
+loki:
+  enabled: false
+app:
+  ingress:
+    host: kubexa.example.com
+apiserver:
+  ingress:
+    enabled: true
+    host: kubexa.example.com
+  config:
+    upstreams:
+      redis:
+        addrs:
+          - redis.example.internal:6379
+      postgres:
+        app:
+          host: pg.example.internal
+          # The bundled default (disable) is only correct for the ClusterIP
+          # Service with no certificate; a Postgres reached over a network
+          # must not send credentials and every row in clear.
+          sslMode: require
+        users:
+          host: pg.example.internal
+          sslMode: require
+      victoriametrics:
+        url: http://vm.example.internal:8428
+      loki:
+        url: http://loki.example.internal:3100
+  secrets:
+    redisPasswordSecret:
+      name: ""
+    redisPassword: ""
+    postgresAppPasswordSecret:
+      name: ""
+    postgresAppPassword: "app-password-example"
+    postgresUsersPasswordSecret:
+      name: ""
+    postgresUsersPassword: "users-password-example"
+agentserver:
+  config:
+    nats:
+      url: nats://nats.example.internal:4222
+    redis:
+      addrs:
+        - redis.example.internal:6379
+  secrets:
+    natsPasswordSecret:
+      name: ""
+consumer:
+  config:
+    nats:
+      url: nats://nats.example.internal:4222
+    victoriaMetrics:
+      url: http://vm.example.internal:8428
+    postgres:
+      host: pg.example.internal
+      sslMode: require
+    usersDb:
+      host: pg.example.internal
+      sslMode: require
+    loki:
+      url: http://loki.example.internal:3100
+  secrets:
+    natsPasswordSecret:
+      name: ""
+    postgresPasswordSecret:
+      name: ""
+    usersDbPasswordSecret:
+      name: ""

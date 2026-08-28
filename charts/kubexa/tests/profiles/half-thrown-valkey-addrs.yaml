@@ -1,0 +1,12 @@
+# Valkey off, the Secret reference moved but apiserver.config.upstreams.
+# redis.addrs left pointed at the bundled Service. Must FAIL on the
+# apiserver Redis addrs guard (templates/guards.yaml), not the Secret-ref
+# guard above it -- the Secret is moved specifically so that guard does not
+# fire first.
+valkey:
+  enabled: false
+apiserver:
+  secrets:
+    redisPasswordSecret:
+      name: ""
+    redisPassword: ""
