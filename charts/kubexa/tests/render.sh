@@ -274,9 +274,9 @@ assert_notes_report_the_stores() {
 # work on the platform's own shell.
 half_thrown_needle() {
   case "$1" in
-    half-thrown)      echo "postgres.enabled=false" ;;
-    half-thrown-vm)   echo "victoriaMetrics.enabled=false" ;;
-    half-thrown-loki) echo "loki.enabled=false" ;;
+    half-thrown)      echo "apiserver.config.upstreams.postgres.{app,users}.host is still" ;;
+    half-thrown-vm)   echo "consumer.config.victoriaMetrics.url is still" ;;
+    half-thrown-loki) echo "consumer.config.loki.url is still" ;;
 
     # Every remaining profile is built to trip ONE specific arm inside a
     # guard family that has more than one -- earlier arms in the same family
