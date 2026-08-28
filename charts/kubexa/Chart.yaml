@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, the web UI, and the datastores and message bus they need (Postgres, Valkey, VictoriaMetrics, Loki, NATS), each of which can be turned off and pointed at your own."
 type: application
-version: 0.6.0
+version: 0.6.1
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -303,7 +303,15 @@ dependencies:
     # reach both the migrate initContainer and the server. Before it there was
     # no way to hand a subchart a password generated at render time, so the
     # bundled Postgres below could not have existed.
-    version: "0.4.23"
+    #
+    # 0.4.24 carries image 0.5.18, the metric catalog and discovery API: GET
+    # metrics/names, GET metrics/labels and POST metrics/query_range under a
+    # cluster. No migration and no new permission key -- all three reuse
+    # cluster:metrics_read, the gate the monitoring routes already carry -- so
+    # nothing has to be granted before the pod restarts. No floor against the
+    # app chart in either direction: the UI that calls these routes is not
+    # built, so installed without it they are simply never called.
+    version: "0.4.24"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -470,7 +478,11 @@ dependencies:
     # kubexa_gateway_agent_scrape_* series per (tenant_id, cluster_id, kind).
     # No floor against the agent chart: an agent that reports no scrape
     # health is recorded as `unknown`, never as healthy.
-    version: "0.2.17"
+    #
+    # 0.2.18 carries image 0.5.18 and nothing else: the agentserver's own code
+    # did not change. It moves so both processes in the namespace run one image
+    # version -- all of 0.5.18 is described under apiserver 0.4.24 above.
+    version: "0.2.18"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
@@ -808,6 +820,12 @@ dependencies:
     # 0.1.29 carries image 0.2.26, which renders metric scrape health on the
     # admin ingestion screen. Needs apiserver 0.4.22 for `scrape_kinds`;
     # against 0.4.21 the field is absent and the screen says so.
-    version: "0.1.29"
+    #
+    # 0.1.30 carries image 0.2.27, which puts max_metric_series -- the eighth
+    # per-namespace plan limit -- on the admin plan screens. The backend has
+    # shipped and enforced that limit since 0.5.17 (users 0083); until this
+    # chart an operator could neither read nor set the ceiling the consumer was
+    # already applying. Needs apiserver 0.4.22 or later, which serves the field.
+    version: "0.1.30"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
