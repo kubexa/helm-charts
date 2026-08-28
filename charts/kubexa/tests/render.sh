@@ -86,6 +86,24 @@ assert_postgres_absent_when_disabled() {
   fi
 }
 
+assert_postgres_wiring() {
+  local out=$1 profile=$2
+  [ "$profile" = "default" ] || return 0
+  # The apiserver's and consumer's rendered config Secrets hold apiserver.yaml
+  # / consumer.yaml; grep the rendered manifest for the host rather than
+  # decoding it -- the value is written in stringData, not base64. Both
+  # subcharts render their own config through a Go struct with yaml tags, so
+  # the key is snake_case (ssl_mode, not sslMode) and go-yaml quotes every
+  # plain string scalar -- host: "kubexa-postgres", not host: kubexa-postgres.
+  [ "$(echo "$out" | grep -c 'host: "kubexa-postgres"')" -ge 4 ] \
+    || { fail "$profile: expected >=4 postgres hosts (apiserver app+users, consumer postgres+usersDb), got $(echo "$out" | grep -c 'host: "kubexa-postgres"')"; return; }
+  echo "$out" | grep -q 'name: kubexa-postgres-auth' \
+    || { fail "$profile: nothing references the kubexa-postgres-auth Secret"; return; }
+  echo "$out" | grep -q 'ssl_mode: "disable"' \
+    || { fail "$profile: the bundled Postgres carries no TLS; ssl_mode must be disable"; return; }
+  ok "$profile: postgres wiring"
+}
+
 # ── driver ──────────────────────────────────────────────────────────────────
 profiles=("$@")
 if [ ${#profiles[@]} -eq 0 ]; then
