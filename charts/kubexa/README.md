@@ -315,6 +315,11 @@ if you're serving the UI some other way, or not yet.
 `kubexa-backup` image on a schedule (default `0 2 * * *`) and takes an
 encrypted logical dump of both the app and users databases.
 
+The `kubexa-backup` image is not built by any CI workflow — it is published
+by hand, the same way `kubexa-backend`/`kubexa-consumer`/`kubexa-app` are
+while Actions minutes are out: `deployments/bin/release-image.sh backup` from
+the `kubexa-backend` repo (source of `Dockerfile.backup`).
+
 It carries **no connection settings of its own** — it reads
 `apiserver.config.upstreams.postgres` (rendered into a config Secret) and the
 two `apiserver.secrets.postgres{App,Users}PasswordSecret` refs the apiserver
@@ -343,11 +348,18 @@ The rest is left at sensible defaults and rarely needs changing:
 - `backup.workDir.sizeLimit` (default `10Gi`) — the `emptyDir` size limit for
   `/work`, where the dump is staged (compressed and encrypted) before upload.
   Too small for the actual database size and the job fails mid-run rather
-  than mid-upload.
-- `backup.victoriaMetrics.url` (default `""`, disabled) — where the job pushes
-  its own run metrics (success/failure, duration, size). Point it at the
-  bundled instance (`http://kubexa-victoriametrics:8428`) or your own, or
-  leave it empty to run without job-level metrics.
+  than mid-upload. Size it for at least twice the largest compressed dump:
+  a `run` holds the plaintext dump and its sealed copy on disk at once, and a
+  split *restore* is worse — it retains both databases' decrypted dumps plus
+  one sealed download until it returns, so size for that peak if restores
+  matter as much as backups do.
+- `backup.victoriaMetrics.url` (default `http://kubexa-victoriametrics:8428`,
+  the bundled instance) — where the job pushes its own run metrics
+  (**success**, duration, size — there is no failure metric; a failed run is
+  signalled by this metric's *absence*, which is what `KubexaBackupStale`
+  reads). `templates/guards.yaml` refuses `backup.enabled=true` with this url
+  empty: a backup nobody can observe is indistinguishable from one that never
+  ran, so there is no supported way to run backups without it.
 - `backup.resources` (default `1 CPU` / `1Gi` limits, `100m` / `128Mi`
   requests) — the CronJob container's own `resources` block, passed straight
   through.

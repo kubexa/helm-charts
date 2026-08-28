@@ -602,6 +602,7 @@ backup:
   retention:
     keep: 14
   encryption:
+    keyId: default
     existingSecret:
       name: ""
       key: encryption-key
@@ -622,8 +623,13 @@ backup:
       existingClaim: ""
       path: /backups
       prefix: kubexa
+  # Same default as apiserver.config.upstreams.victoriametrics.url (line ~402)
+  # and consumer.config.victoriaMetrics.url (line ~559) -- keep all three in
+  # step. Unlike those two, this one is guarded (templates/guards.yaml): an
+  # empty url here does not stop the backup from running, it stops the backup
+  # from ever being OBSERVABLE, which is the trap I3 closed.
   victoriaMetrics:
-    url: ""
+    url: http://kubexa-victoriametrics:8428
   resources:
     limits: { cpu: 1, memory: 1Gi }
     requests: { cpu: 100m, memory: 128Mi }
