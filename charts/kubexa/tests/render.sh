@@ -194,11 +194,23 @@ assert_notes_report_the_stores() {
   # side (no cluster write, confirmed against an unreachable KUBECONFIG) and
   # prints a trailing "NOTES:" section identical to what `helm install` for
   # real would show; pull that section out instead.
-  local install_out notes
+  local install_out notes components
   install_out=$(helm install kubexa "$CHART" -f "$PROFILES_DIR/$profile.yaml" --dry-run 2>&1) || true
   notes=$(awk '/^NOTES:$/{flag=1; next} flag' <<< "$install_out")
-  for store in Postgres VictoriaMetrics Loki; do
-    grep -qi "$store" <<< "$notes" || fail "$profile: NOTES.txt does not mention $store"
+  # Anchored to the Components: block itself, not the whole NOTES body: the
+  # unconditional "Next steps" paragraph further down hardcodes the literal
+  # prose "...landing in Postgres/Loki/VictoriaMetrics for the cluster you
+  # connected", so a bare `grep -qi "$store"` against the full NOTES text
+  # stays green even with the three Components lines below deleted outright
+  # -- proven empirically (see task-8-report.md's fix section) and NOT a
+  # hypothetical: that was this assertion's original, broken form. Extract
+  # just the block between "Components:" and the next blank line and match
+  # the literal rendered line prefix there instead, so the check can only
+  # pass because the Components list itself names the store.
+  components=$(awk '/^Components:$/{flag=1; next} /^$/{flag=0} flag' <<< "$notes")
+  for prefix in "postgres:" "victoria:" "loki:"; do
+    grep -q "^  $prefix" <<< "$components" \
+      || fail "$profile: NOTES.txt Components: block does not report \"$prefix\""
   done
   ok "$profile: NOTES report the stores"
 }
