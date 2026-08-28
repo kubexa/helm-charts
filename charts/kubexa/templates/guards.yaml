@@ -334,6 +334,18 @@ that actually names the rendered Service lives under .server.
 {{- if and .Values.apiserver.enabled (eq .Values.apiserver.config.upstreams.victoriametrics.url $bundledVM) }}
 {{- fail (printf "victoriaMetrics.enabled=false but apiserver.config.upstreams.victoriametrics.url is still %q, the bundled instance's Service name. Point it at your own VictoriaMetrics, or set it to \"\" -- an empty url disables the upstream, which is an honest \"not configured\" rather than a query that fails on every screen." $bundledVM) }}
 {{- end }}
+{{- /*
+The backup CronJob is the third pointer at the bundled instance, and the one
+whose failure is quietest: a push to a Service that resolves to nothing is
+logged and does not fail the run, so the backup keeps succeeding while
+KubexaBackupStale pages forever on the absent metric. backup.victoriaMetrics.url
+cannot be left empty either -- the guard below refuses that -- so an operator
+moving off the bundled instance has to name their own here, exactly as they do
+for the consumer and the apiserver.
+*/ -}}
+{{- if and .Values.backup.enabled (eq .Values.backup.victoriaMetrics.url $bundledVM) }}
+{{- fail (printf "victoriaMetrics.enabled=false but backup.victoriaMetrics.url is still %q, the bundled instance's Service name. The push failure is only logged, so backups would keep succeeding while the staleness alert pages on a metric nothing ever wrote. Point it at your own VictoriaMetrics." $bundledVM) }}
+{{- end }}
 {{- end }}
 
 {{- /*
@@ -430,5 +442,37 @@ guard above -- including that one -- has already passed.
 {{- $consumerUsersHost := .Values.consumer.config.usersDb.host }}
 {{- if and $consumerUsersHost (ne $apiUsersHost $consumerUsersHost) }}
 {{- fail (printf "apiserver.config.upstreams.postgres.users.host (%q) differs from consumer.config.usersDb.host (%q): the apiserver's identity/auth path reads the users registry through the first, the consumer's cluster-namespace-to-tenant resolution (X-Scope-OrgID for Loki pushes) reads the same registry through the second. With the two apart, the consumer resolves clusters against a different users database than the one the apiserver authenticates against, and a cluster the consumer looks up there may not exist, with nothing naming the cause. Point both at the same Postgres instance, or clear consumer.config.usersDb.host to disable the cluster registry deliberately." $apiUsersHost $consumerUsersHost) }}
+{{- end }}
+{{- end }}
+
+{{- /*
+backup.enabled=true guarded on three things a bad value would otherwise leave
+silently broken: an unencrypted dump, an unobservable one (an empty
+victoriaMetrics.url means the CronJob runs correctly forever and nothing --
+not even a failed backup -- is ever distinguishable from a healthy one, since
+the staleness alert reads absence as failure by design), and a destination
+driver missing the field(s) it needs to actually write anywhere. Unlike the
+Postgres/Redis/NATS/Loki/VM guards above, this one does not compare against a
+bundled Service -- backup carries no connection settings of its own (see the
+comment on values.yaml's backup: block), so there is nothing here for a
+"still pointed at the bundled store" check to catch.
+*/ -}}
+{{- if .Values.backup.enabled }}
+{{- if not .Values.backup.encryption.existingSecret.name }}
+{{- fail "backup.enabled=true requires backup.encryption.existingSecret.name: an unencrypted dump carries password hashes, sealed secrets and tokens into a third-party bucket." }}
+{{- end }}
+{{- if not .Values.backup.victoriaMetrics.url }}
+{{- fail "backup.enabled=true requires backup.victoriaMetrics.url: a backup nobody can observe cannot be distinguished from one that never ran. Point it at wherever vmalert reads (the bundled instance's default is http://kubexa-victoriametrics:8428)." }}
+{{- end }}
+{{- if eq .Values.backup.destination.driver "s3" }}
+{{- if or (not .Values.backup.destination.s3.bucket) (not .Values.backup.destination.s3.existingSecret.name) }}
+{{- fail "backup.destination.driver=s3 requires backup.destination.s3.bucket and backup.destination.s3.existingSecret.name." }}
+{{- end }}
+{{- else if eq .Values.backup.destination.driver "filesystem" }}
+{{- if not .Values.backup.destination.filesystem.existingClaim }}
+{{- fail "backup.destination.driver=filesystem requires backup.destination.filesystem.existingClaim." }}
+{{- end }}
+{{- else }}
+{{- fail (printf "backup.destination.driver %q is not supported; use s3 or filesystem." .Values.backup.destination.driver) }}
 {{- end }}
 {{- end }}

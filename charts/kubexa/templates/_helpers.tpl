@@ -41,6 +41,17 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- .Values.agentserver.fullnameOverride -}}
 {{- end }}
 
+{{- define "kubexa.backupLabels" -}}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+app.kubernetes.io/name: backup
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{- define "kubexa.backupFullname" -}}
+kubexa-backup
+{{- end }}
+
 {{/*
 Parses a Kubernetes resource-quantity string (the shape
 nats.config.jetstream.fileStore.pvc.size/.maxSize uses -- "16Gi", "500M", or
