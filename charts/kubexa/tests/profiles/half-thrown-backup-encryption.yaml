@@ -1,0 +1,6 @@
+# backup.enabled=true with no encryption Secret named. This profile MUST fail
+# to render: templates/guards.yaml refuses an unencrypted backup outright,
+# since a plaintext dump carries password hashes, sealed secrets and tokens
+# into wherever the destination driver sends it.
+backup:
+  enabled: true

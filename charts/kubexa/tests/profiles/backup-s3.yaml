@@ -1,0 +1,22 @@
+# backup.enabled=true against the s3 driver: a bucket, a region, and both
+# halves of the credential Secret filled in, plus the encryption Secret
+# backup.enabled requires unconditionally. Everything else is left at the
+# chart's own defaults (bundled Postgres, apiserver secrets) -- this profile
+# exists to prove the CronJob and its config Secret render and wire up to
+# those defaults, not to exercise any other store's guards.
+backup:
+  enabled: true
+  encryption:
+    existingSecret:
+      name: kubexa-backup-encryption
+      key: encryption-key
+  destination:
+    driver: s3
+    s3:
+      endpoint: s3.example.com
+      region: us-east-1
+      bucket: kubexa-backups
+      existingSecret:
+        name: kubexa-backup-s3-credentials
+        accessKeyIdKey: access-key-id
+        secretAccessKeyKey: secret-access-key
