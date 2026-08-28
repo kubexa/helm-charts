@@ -1,0 +1,9 @@
+# Loki off, the consumer entirely disabled so neither the pre-existing
+# apiserver/consumer Loki read-write mismatch guard, the Loki-disabled
+# consumer-url arm, nor the loki-url-without-usersDb guard can fire ahead of
+# the one this profile targets (all three require consumer.enabled). Must
+# FAIL on the apiserver Loki url guard (templates/guards.yaml).
+loki:
+  enabled: false
+consumer:
+  enabled: false

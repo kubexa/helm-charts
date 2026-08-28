@@ -277,6 +277,29 @@ half_thrown_needle() {
     half-thrown)      echo "postgres.enabled=false" ;;
     half-thrown-vm)   echo "victoriaMetrics.enabled=false" ;;
     half-thrown-loki) echo "loki.enabled=false" ;;
+
+    # Every remaining profile is built to trip ONE specific arm inside a
+    # guard family that has more than one -- earlier arms in the same family
+    # are deliberately defused by the profile's own overrides (see each
+    # profile's comment), so the needle below is the exact fragment that
+    # arm's own message carries, not just the family's shared prefix, so a
+    # DIFFERENT arm in the same family firing instead is caught as a
+    # mismatch rather than read as a pass.
+    half-thrown-valkey)                    echo "apiserver.secrets.redisPasswordSecret.name is still" ;;
+    half-thrown-valkey-addrs)              echo "apiserver.config.upstreams.redis.addrs still contains" ;;
+    half-thrown-nats)                      echo "agentserver.config.nats.url is still" ;;
+    half-thrown-nats-consumer)             echo "consumer.config.nats.url is still" ;;
+    half-thrown-nats-agentserver-secret)   echo "agentserver.secrets.natsPasswordSecret.name is still" ;;
+    half-thrown-nats-consumer-secret)      echo "consumer.secrets.natsPasswordSecret.name is still" ;;
+    half-thrown-postgres-secret)           echo "apiserver.secrets.postgres{App,Users}PasswordSecret.name is still" ;;
+    half-thrown-postgres-consumer-host)    echo "consumer.config.{postgres,usersDb}.host is still" ;;
+    half-thrown-postgres-consumer-secret)  echo "consumer.secrets.{postgresPasswordSecret,usersDbPasswordSecret}.name is still" ;;
+    half-thrown-postgres-sslmode-apiserver) echo "apiserver.config.upstreams.postgres.{app,users}.sslMode is still" ;;
+    half-thrown-postgres-sslmode-consumer)  echo "consumer.config.{postgres,usersDb}.sslMode is still" ;;
+    half-thrown-vm-apiserver)              echo "apiserver.config.upstreams.victoriametrics.url is still" ;;
+    half-thrown-loki-apiserver)            echo "apiserver.config.upstreams.loki.url is still" ;;
+    half-thrown-postgres-split-app)        echo "differs from consumer.config.postgres.host" ;;
+    half-thrown-postgres-split-users)      echo "differs from consumer.config.usersDb.host" ;;
     *)                echo "" ;;
   esac
 }
