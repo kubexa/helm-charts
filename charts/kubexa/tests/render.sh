@@ -183,6 +183,17 @@ assert_consumer_users_db_present_with_loki() {
   ok "$profile: loki/usersDb pairing"
 }
 
+# half-thrown* profiles are each ONE store disabled with every pointer left
+# behind, so they must FAIL to render -- the failure and its message are the
+# assertion, not a successful render. Helm stops at the first `fail`, so each
+# profile is built to trip exactly one guard; map the profile name to the
+# needle its guard message must contain.
+declare -A HALF_THROWN_NEEDLE=(
+  [half-thrown]="postgres.enabled=false"
+  [half-thrown-vm]="victoriaMetrics.enabled=false"
+  [half-thrown-loki]="loki.enabled=false"
+)
+
 # ── driver ──────────────────────────────────────────────────────────────────
 profiles=("$@")
 if [ ${#profiles[@]} -eq 0 ]; then
@@ -191,9 +202,20 @@ fi
 
 for profile in "${profiles[@]}"; do
   echo "profile: $profile"
+  needle="${HALF_THROWN_NEEDLE[$profile]:-}"
   if ! out=$(render_profile "$profile"); then
+    if [ -n "$needle" ]; then
+      # This profile is SUPPOSED to fail. Assert the guard that fired.
+      grep -q "$needle" <<<"$out" || fail "$profile: no guard mentioned $needle"
+      ok "$profile: guard fired"
+      continue
+    fi
     fail "$profile: helm template failed"
     echo "$out" >&2
+    continue
+  fi
+  if [ -n "$needle" ]; then
+    fail "$profile: rendered successfully -- a guard is missing"
     continue
   fi
   for assertion in $(declare -F | awk '{print $3}' | grep '^assert_'); do
