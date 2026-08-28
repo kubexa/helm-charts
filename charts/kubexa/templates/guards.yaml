@@ -211,3 +211,96 @@ its own reason to leave these unset.
 {{- end }}
 {{- end }}
 {{- end }}
+
+{{- /*
+Postgres disabled, but the apiserver and/or the consumer are still pointed at
+the bundled instance's Service name, or still hold the Secret reference
+templates/postgres-secret.yaml would have generated. Neither object exists
+with postgres disabled: the apiserver's migrate initContainer stops with
+CreateContainerConfigError on a Secret that is not there -- and if only the
+host was left behind, it instead resolves nothing and crash-loops before the
+server starts. The consumer is quieter still: its Postgres writer simply
+never connects.
+*/ -}}
+{{- if not .Values.postgres.enabled }}
+{{- $bundledHost := .Values.postgres.serviceName }}
+{{- $bundledSecret := printf "%s-auth" .Values.postgres.serviceName }}
+{{- if .Values.apiserver.enabled }}
+{{- if or (eq .Values.apiserver.config.upstreams.postgres.app.host $bundledHost) (eq .Values.apiserver.config.upstreams.postgres.users.host $bundledHost) }}
+{{- fail (printf "postgres.enabled=false but apiserver.config.upstreams.postgres.{app,users}.host is still %q, the bundled Postgres's Service name. That Service is never rendered with postgres disabled, so the migrate initContainer dials a name that resolves to nothing and crash-loops the install before the server starts. Point both hosts at your own Postgres." $bundledHost) }}
+{{- end }}
+{{- if or (eq .Values.apiserver.secrets.postgresAppPasswordSecret.name $bundledSecret) (eq .Values.apiserver.secrets.postgresUsersPasswordSecret.name $bundledSecret) }}
+{{- fail (printf "postgres.enabled=false but apiserver.secrets.postgres{App,Users}PasswordSecret.name is still %q, the Secret templates/postgres-secret.yaml would have generated. That Secret is never rendered with postgres disabled, and the reference is deliberately not optional, so the pod fails with CreateContainerConfigError: secret %q not found. Point both at a Secret you created, or set .name to \"\" and use apiserver.secrets.postgresAppPassword / postgresUsersPassword instead." $bundledSecret $bundledSecret) }}
+{{- end }}
+{{- end }}
+{{- if .Values.consumer.enabled }}
+{{- if or (eq .Values.consumer.config.postgres.host $bundledHost) (eq .Values.consumer.config.usersDb.host $bundledHost) }}
+{{- fail (printf "postgres.enabled=false but consumer.config.{postgres,usersDb}.host is still %q, the bundled Postgres's Service name. The consumer's writers then never connect and its readiness never turns ready, with nothing naming Postgres as the cause. Point both at your own Postgres." $bundledHost) }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- /*
+sslMode left at `disable` while pointed at a Postgres this chart did not
+bundle. `disable` is correct for the bundled instance -- a ClusterIP Service
+with no certificate -- and wrong for anything reached across a network: the
+connection succeeds and the credentials and every row cross the wire in
+clear. The apiserver chart's own default is `require`, so this state can only
+be reached by leaving this chart's bundled-instance value behind.
+*/ -}}
+{{- if and (not .Values.postgres.enabled) .Values.apiserver.enabled }}
+{{- if or (eq .Values.apiserver.config.upstreams.postgres.app.sslMode "disable") (eq .Values.apiserver.config.upstreams.postgres.users.sslMode "disable") }}
+{{- fail "postgres.enabled=false but apiserver.config.upstreams.postgres.{app,users}.sslMode is still \"disable\", the value this chart sets for the bundled instance because it is a ClusterIP Service with no certificate. Against a Postgres reached over a network that setting sends the password and every row in clear. Set both to \"require\" (the apiserver chart's own default) or to \"verify-full\" with a root certificate." }}
+{{- end }}
+{{- end }}
+
+{{- /*
+VictoriaMetrics disabled with the bundled endpoint left behind. The
+consumer's remote-write silently retries into a name that resolves to
+nothing, and the apiserver's metric screens answer with an error the UI shows
+as an empty chart -- which is exactly the "a failed query became a zero"
+failure this product has a rule against.
+
+The bundled URL is built from victoriaMetrics.server.fullnameOverride, not a
+top-level victoriaMetrics.fullnameOverride: this chart's "vm.plain.fullname"
+helper always suffixes a top-level override with "-server" (see the comment
+on victoriaMetrics.server.fullnameOverride in values.yaml), so the override
+that actually names the rendered Service lives under .server.
+*/ -}}
+{{- if not .Values.victoriaMetrics.enabled }}
+{{- $bundledVM := printf "http://%s:8428" .Values.victoriaMetrics.server.fullnameOverride }}
+{{- if and .Values.consumer.enabled (eq .Values.consumer.config.victoriaMetrics.url $bundledVM) }}
+{{- fail (printf "victoriaMetrics.enabled=false but consumer.config.victoriaMetrics.url is still %q, the bundled instance's Service name. Point it at your own VictoriaMetrics, or set it to \"\" to disable the writer deliberately." $bundledVM) }}
+{{- end }}
+{{- if and .Values.apiserver.enabled (eq .Values.apiserver.config.upstreams.victoriametrics.url $bundledVM) }}
+{{- fail (printf "victoriaMetrics.enabled=false but apiserver.config.upstreams.victoriametrics.url is still %q, the bundled instance's Service name. Point it at your own VictoriaMetrics, or set it to \"\" -- an empty url disables the upstream, which is an honest \"not configured\" rather than a query that fails on every screen." $bundledVM) }}
+{{- end }}
+{{- end }}
+
+{{- /*
+Loki disabled with the bundled endpoint left behind, and the reverse: a Loki
+url with no users database. The consumer's Validate() refuses the second
+combination outright, and the refusal is a line in a log nobody reads until
+logs stop arriving.
+*/ -}}
+{{- if not .Values.loki.enabled }}
+{{- $bundledLoki := printf "http://%s:3100" .Values.loki.fullnameOverride }}
+{{- if and .Values.consumer.enabled (eq .Values.consumer.config.loki.url $bundledLoki) }}
+{{- fail (printf "loki.enabled=false but consumer.config.loki.url is still %q, the bundled instance's Service name. Point it at your own Loki, or set it to \"\" to disable the writer deliberately." $bundledLoki) }}
+{{- end }}
+{{- if and .Values.apiserver.enabled (eq .Values.apiserver.config.upstreams.loki.url $bundledLoki) }}
+{{- fail (printf "loki.enabled=false but apiserver.config.upstreams.loki.url is still %q, the bundled instance's Service name. Point it at your own Loki, or set it to \"\"." $bundledLoki) }}
+{{- end }}
+{{- end }}
+
+{{- /*
+A Loki url with no users database. Independent of whether Loki is bundled:
+the consumer resolves each cluster's namespace into the X-Scope-OrgID every
+push carries, and that lookup is the users database. Its Validate() refuses
+the combination and the process exits.
+*/ -}}
+{{- if and .Values.consumer.enabled .Values.consumer.config.loki.url }}
+{{- if not .Values.consumer.config.usersDb.host }}
+{{- fail "consumer.config.loki.url is set but consumer.config.usersDb.host is empty. Loki pushes carry X-Scope-OrgID resolved from the users database, so the consumer's Validate() refuses this combination and the process exits at boot. Fill in consumer.config.usersDb, or clear loki.url." }}
+{{- end }}
+{{- end }}
