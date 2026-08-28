@@ -434,17 +434,23 @@ guard above -- including that one -- has already passed.
 {{- end }}
 
 {{- /*
-backup.enabled=true guarded on two things a bad value would otherwise leave
-silently broken: an unencrypted dump, and a destination driver missing the
-field(s) it needs to actually write anywhere. Unlike the Postgres/Redis/NATS/
-Loki/VM guards above, this one does not compare against a bundled Service --
-backup carries no connection settings of its own (see the comment on
-values.yaml's backup: block), so there is nothing here for a "still pointed
-at the bundled store" check to catch.
+backup.enabled=true guarded on three things a bad value would otherwise leave
+silently broken: an unencrypted dump, an unobservable one (an empty
+victoriaMetrics.url means the CronJob runs correctly forever and nothing --
+not even a failed backup -- is ever distinguishable from a healthy one, since
+the staleness alert reads absence as failure by design), and a destination
+driver missing the field(s) it needs to actually write anywhere. Unlike the
+Postgres/Redis/NATS/Loki/VM guards above, this one does not compare against a
+bundled Service -- backup carries no connection settings of its own (see the
+comment on values.yaml's backup: block), so there is nothing here for a
+"still pointed at the bundled store" check to catch.
 */ -}}
 {{- if .Values.backup.enabled }}
 {{- if not .Values.backup.encryption.existingSecret.name }}
 {{- fail "backup.enabled=true requires backup.encryption.existingSecret.name: an unencrypted dump carries password hashes, sealed secrets and tokens into a third-party bucket." }}
+{{- end }}
+{{- if not .Values.backup.victoriaMetrics.url }}
+{{- fail "backup.enabled=true requires backup.victoriaMetrics.url: a backup nobody can observe cannot be distinguished from one that never ran. Point it at wherever vmalert reads (the bundled instance's default is http://kubexa-victoriametrics:8428)." }}
 {{- end }}
 {{- if eq .Values.backup.destination.driver "s3" }}
 {{- if or (not .Values.backup.destination.s3.bucket) (not .Values.backup.destination.s3.existingSecret.name) }}

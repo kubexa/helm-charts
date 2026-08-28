@@ -56,6 +56,8 @@ spec:
                     secretKeyRef:
                       name: {{ .Values.backup.encryption.existingSecret.name }}
                       key: {{ .Values.backup.encryption.existingSecret.key }}
+                - name: KUBEXA_BACKUP_ENCRYPTION_KEY_ID
+                  value: {{ .Values.backup.encryption.keyId | quote }}
                 {{- if eq .Values.backup.destination.driver "s3" }}
                 - name: KUBEXA_BACKUP_PREFIX
                   value: {{ .Values.backup.destination.s3.prefix | quote }}

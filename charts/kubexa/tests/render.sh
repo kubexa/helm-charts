@@ -170,7 +170,7 @@ assert_backup_cronjob() {
     fail "$profile: no backup-cronjob.yaml document found in the render"
     return
   fi
-  for needle in "kind: CronJob" "KUBEXA_BACKUP_ENCRYPTION_KEY" "sizeLimit: 10Gi" "KUBEXA_APISERVER_POSTGRES_APP_PASSWORD" "KUBEXA_APISERVER_POSTGRES_USERS_PASSWORD"; do
+  for needle in "kind: CronJob" "KUBEXA_BACKUP_ENCRYPTION_KEY" "KUBEXA_BACKUP_ENCRYPTION_KEY_ID" "sizeLimit: 10Gi" "KUBEXA_APISERVER_POSTGRES_APP_PASSWORD" "KUBEXA_APISERVER_POSTGRES_USERS_PASSWORD"; do
     if grep -qF "$needle" <<< "$doc"; then
       ok "$profile: $needle"
     else
@@ -456,6 +456,7 @@ half_thrown_needle() {
     half-thrown-postgres-split-app)        echo "differs from consumer.config.postgres.host" ;;
     half-thrown-postgres-split-users)      echo "differs from consumer.config.usersDb.host" ;;
     half-thrown-backup-encryption)         echo "backup.enabled=true requires backup.encryption.existingSecret.name" ;;
+    half-thrown-backup-vm-url)             echo "backup.enabled=true requires backup.victoriaMetrics.url" ;;
     half-thrown-backup-s3-bucket)          echo "backup.destination.driver=s3 requires backup.destination.s3.bucket" ;;
     half-thrown-backup-filesystem-claim)   echo "backup.destination.driver=filesystem requires backup.destination.filesystem.existingClaim" ;;
     half-thrown-backup-driver)             echo "is not supported; use s3 or filesystem" ;;
