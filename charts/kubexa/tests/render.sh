@@ -26,11 +26,13 @@ render_profile() {
 
 assert_kubeconform() {
   local out=$1 profile=$2
-  if echo "$out" | kubeconform -strict -ignore-missing-schemas -summary >/dev/null 2>&1; then
+  # Herestrings, not `echo "$out" | ...`: see assert_bundled_vm for the
+  # SIGPIPE/pipefail mechanism this avoids.
+  if kubeconform -strict -ignore-missing-schemas -summary <<< "$out" >/dev/null 2>&1; then
     ok "$profile: kubeconform"
   else
     fail "$profile: kubeconform rejected the render"
-    echo "$out" | kubeconform -strict -ignore-missing-schemas -summary || true
+    kubeconform -strict -ignore-missing-schemas -summary <<< "$out" || true
   fi
 }
 
@@ -39,7 +41,7 @@ assert_no_empty_documents() {
   # A template whose whole body is inside an {{- if }} that is false renders
   # as a bare "---" with nothing after it. Harmless to kubectl, but it means
   # a guard fired that the profile did not intend.
-  if echo "$out" | awk '
+  if awk '
     BEGIN{RS="---"}
     {
       body=0
@@ -55,7 +57,7 @@ assert_no_empty_documents() {
       if (!body && NF) found=1
     }
     END{exit !found}
-  '; then
+  ' <<< "$out"; then
     fail "$profile: an empty document was rendered"
   else
     ok "$profile: no empty documents"
@@ -65,13 +67,13 @@ assert_no_empty_documents() {
 assert_bundled_postgres() {
   local out=$1 profile=$2
   [ "$profile" = "default" ] || return 0
-  echo "$out" | grep -q 'name: kubexa-postgres$' \
+  grep -q 'name: kubexa-postgres$' <<< "$out" \
     || { fail "$profile: no kubexa-postgres Service/StatefulSet rendered"; return; }
-  echo "$out" | grep -q 'name: kubexa-postgres-auth' \
+  grep -q 'name: kubexa-postgres-auth' <<< "$out" \
     || { fail "$profile: no kubexa-postgres-auth Secret rendered"; return; }
-  echo "$out" | grep -q 'CREATE DATABASE kubexa_app' \
+  grep -q 'CREATE DATABASE kubexa_app' <<< "$out" \
     || { fail "$profile: the init script does not create kubexa_app"; return; }
-  echo "$out" | grep -q 'CREATE DATABASE kubexa_users' \
+  grep -q 'CREATE DATABASE kubexa_users' <<< "$out" \
     || { fail "$profile: the init script does not create kubexa_users"; return; }
   ok "$profile: bundled postgres"
 }
@@ -79,7 +81,7 @@ assert_bundled_postgres() {
 assert_postgres_absent_when_disabled() {
   local out=$1 profile=$2
   [ "$profile" = "external-stores" ] || return 0
-  if echo "$out" | grep -q 'kubexa-postgres'; then
+  if grep -q 'kubexa-postgres' <<< "$out"; then
     fail "$profile: postgres objects rendered with postgres.enabled=false"
   else
     ok "$profile: postgres absent when disabled"
@@ -95,11 +97,11 @@ assert_postgres_wiring() {
   # subcharts render their own config through a Go struct with yaml tags, so
   # the key is snake_case (ssl_mode, not sslMode) and go-yaml quotes every
   # plain string scalar -- host: "kubexa-postgres", not host: kubexa-postgres.
-  [ "$(echo "$out" | grep -c 'host: "kubexa-postgres"')" -ge 4 ] \
-    || { fail "$profile: expected >=4 postgres hosts (apiserver app+users, consumer postgres+usersDb), got $(echo "$out" | grep -c 'host: "kubexa-postgres"')"; return; }
-  echo "$out" | grep -q 'name: kubexa-postgres-auth' \
+  [ "$(grep -c 'host: "kubexa-postgres"' <<< "$out")" -ge 4 ] \
+    || { fail "$profile: expected >=4 postgres hosts (apiserver app+users, consumer postgres+usersDb), got $(grep -c 'host: "kubexa-postgres"' <<< "$out")"; return; }
+  grep -q 'name: kubexa-postgres-auth' <<< "$out" \
     || { fail "$profile: nothing references the kubexa-postgres-auth Secret"; return; }
-  echo "$out" | grep -q 'ssl_mode: "disable"' \
+  grep -q 'ssl_mode: "disable"' <<< "$out" \
     || { fail "$profile: the bundled Postgres carries no TLS; ssl_mode must be disable"; return; }
   ok "$profile: postgres wiring"
 }
