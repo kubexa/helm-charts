@@ -334,6 +334,18 @@ that actually names the rendered Service lives under .server.
 {{- if and .Values.apiserver.enabled (eq .Values.apiserver.config.upstreams.victoriametrics.url $bundledVM) }}
 {{- fail (printf "victoriaMetrics.enabled=false but apiserver.config.upstreams.victoriametrics.url is still %q, the bundled instance's Service name. Point it at your own VictoriaMetrics, or set it to \"\" -- an empty url disables the upstream, which is an honest \"not configured\" rather than a query that fails on every screen." $bundledVM) }}
 {{- end }}
+{{- /*
+The backup CronJob is the third pointer at the bundled instance, and the one
+whose failure is quietest: a push to a Service that resolves to nothing is
+logged and does not fail the run, so the backup keeps succeeding while
+KubexaBackupStale pages forever on the absent metric. backup.victoriaMetrics.url
+cannot be left empty either -- the guard below refuses that -- so an operator
+moving off the bundled instance has to name their own here, exactly as they do
+for the consumer and the apiserver.
+*/ -}}
+{{- if and .Values.backup.enabled (eq .Values.backup.victoriaMetrics.url $bundledVM) }}
+{{- fail (printf "victoriaMetrics.enabled=false but backup.victoriaMetrics.url is still %q, the bundled instance's Service name. The push failure is only logged, so backups would keep succeeding while the staleness alert pages on a metric nothing ever wrote. Point it at your own VictoriaMetrics." $bundledVM) }}
+{{- end }}
 {{- end }}
 
 {{- /*
