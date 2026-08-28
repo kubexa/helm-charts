@@ -250,6 +250,24 @@ victoriaMetrics:
 loki:
   enabled: true
   fullnameOverride: kubexa-loki
+  # fullnameOverride alone is not enough: this chart's "loki.name" helper
+  # (default "loki") -- not "loki.fullname" -- names the headless Service
+  # (single-binary/service-headless.yaml: "{{ include \"loki.name\" .
+  # }}-headless") and the generated config ConfigMap
+  # (values.yaml's loki.generatedConfigObjectName default:
+  # '{{ include "loki.name" . }}'). Left at the chart default those two
+  # objects render as "loki-headless" and "loki" -- unprefixed, colliding
+  # with any other release named "loki" in the namespace, and in the
+  # headless Service's case naming something the StatefulSet's own
+  # "serviceName: {{ include \"loki.singleBinaryFullname\" . }}-headless"
+  # (which DOES honor fullnameOverride) does not actually point at:
+  # "kubexa-loki-headless" resolving to nothing. nameOverride pins
+  # "loki.name" to the same "kubexa-loki" root so every name it drives
+  # lines up with fullnameOverride's. Verified against the render: every
+  # object this subchart produces now carries a "kubexa-loki" prefix (see
+  # tests/render.sh's assert_bundled_loki, which checks the headless
+  # Service by name).
+  nameOverride: kubexa-loki
   deploymentMode: SingleBinary
   loki:
     # Multi-tenancy ON. Every push and query carries X-Scope-OrgID, and the id

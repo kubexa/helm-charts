@@ -140,13 +140,19 @@ assert_bundled_vm() {
 assert_bundled_loki() {
   local out=$1 profile=$2
   [ "$profile" = "default" ] || return 0
-  grep -q 'kubexa-loki' <<< "$out" \
+  # Anchored on an object NAME ("name: kubexa-loki" at end of line), not a
+  # bare substring: apiserver.config.upstreams.loki.url and
+  # consumer.config.loki.url both render "kubexa-loki" too (inside
+  # "http://kubexa-loki:3100"), so a plain `grep -q 'kubexa-loki'` stays
+  # green even with loki.enabled=false and zero Loki objects rendered --
+  # measured against the real render, the exact condition this check exists
+  # to catch. Every object this subchart's fullnameOverride+nameOverride
+  # pair produces (ServiceAccount, ConfigMap, Service, StatefulSet) is named
+  # exactly "kubexa-loki" with nothing after it on that line; the URL
+  # literal is never at end-of-line ("...kubexa-loki:3100"" always follows),
+  # so the anchor excludes it by construction.
+  grep -q 'name: kubexa-loki$' <<< "$out" \
     || { fail "$profile: no Loki objects rendered"; return; }
-  # No quotes in the pattern: this is a plain substring match, so it matches
-  # the literal whether or not the surrounding config quotes it -- unlike the
-  # two checks below, which land inside the apiserver's/consumer's own
-  # rendered config and DO need the quoting corrected (see the comment on
-  # assert_consumer_users_db_present_with_loki).
   grep -q 'http://kubexa-loki:3100' <<< "$out" \
     || { fail "$profile: nothing points at the bundled Loki"; return; }
   grep -q 'auth_enabled: true' <<< "$out" \
