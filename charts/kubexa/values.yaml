@@ -37,6 +37,64 @@ valkey:
       cpu: 500m
       memory: 512Mi
 
+# ─── bundled relational store ───────────────────────────────────────────────
+#
+# One Postgres, two databases: kubexa_app (telemetry, clusters, alerts) and
+# kubexa_users (identity, RBAC, audit). The apiserver and the consumer each
+# hold both as separate upstreams with separate credentials, so this chart
+# creates two roles rather than one shared user -- the users database holds
+# password hashes and refresh tokens and does not need to be readable by the
+# code that writes telemetry.
+#
+# Single replica, no HA. That is the honest scope: a self-hosted install that
+# needs failover should turn this off and point at a managed Postgres or a
+# CloudNativePG cluster. Backups are A0.3's subject, not this chart's.
+#
+# Turn it off and set apiserver.config.upstreams.postgres.{app,users}.host --
+# and sslMode back to `require` -- to your own instance.
+postgres:
+  enabled: true
+  # A static name, not <release>-postgres: Helm does not template values.yaml,
+  # so a release-derived name could not be written into the apiserver's and
+  # consumer's values below. Same rule as valkey.serviceName and the bundled
+  # NATS -- one umbrella release per namespace.
+  serviceName: kubexa-postgres
+  # 17-alpine: the image the migrations are tested against, and the last
+  # major with a maintained alpine variant at the time of writing. Pin the
+  # major -- a silent jump to 18 on a StatefulSet whose PVC holds a 17 data
+  # directory is a pod that will not start, with the reason only in its log.
+  image: postgres:17-alpine
+  port: 5432
+  # Generated on first install and preserved across upgrades. Set to pin.
+  # These are the values written into kubexa-postgres-auth; the apiserver and
+  # the consumer read them from that Secret by reference, never by value.
+  superuserPassword: ""
+  appPassword: ""
+  usersPassword: ""
+  # The two database names, matching kubexa-apiserver's own defaults
+  # (helm/kubexa-apiserver/values.yaml: config.upstreams.postgres.*.database).
+  # Changing one here means changing it in apiserver.config and
+  # consumer.config below, in the same commit.
+  appDatabase: kubexa_app
+  usersDatabase: kubexa_users
+  appUser: kubexa_app
+  usersUser: kubexa_users
+  persistence:
+    enabled: true
+    storageClass: ""
+    # Telemetry rows, not chunks: the metric and log bodies live in
+    # VictoriaMetrics and Loki. 20Gi is a starting value, not a measurement --
+    # A0.4's sizing guide is where a real number comes from. A PVC cannot be
+    # shrunk in place, so err small and grow.
+    size: 20Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+
 # ─── bundled message bus ────────────────────────────────────────────────────
 #
 # NATS JetStream: the telemetry pipeline's spine. The agentserver publishes to

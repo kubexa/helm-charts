@@ -62,6 +62,30 @@ assert_no_empty_documents() {
   fi
 }
 
+assert_bundled_postgres() {
+  local out=$1 profile=$2
+  [ "$profile" = "default" ] || return 0
+  echo "$out" | grep -q 'name: kubexa-postgres$' \
+    || { fail "$profile: no kubexa-postgres Service/StatefulSet rendered"; return; }
+  echo "$out" | grep -q 'name: kubexa-postgres-auth' \
+    || { fail "$profile: no kubexa-postgres-auth Secret rendered"; return; }
+  echo "$out" | grep -q 'CREATE DATABASE kubexa_app' \
+    || { fail "$profile: the init script does not create kubexa_app"; return; }
+  echo "$out" | grep -q 'CREATE DATABASE kubexa_users' \
+    || { fail "$profile: the init script does not create kubexa_users"; return; }
+  ok "$profile: bundled postgres"
+}
+
+assert_postgres_absent_when_disabled() {
+  local out=$1 profile=$2
+  [ "$profile" = "external-stores" ] || return 0
+  if echo "$out" | grep -q 'kubexa-postgres'; then
+    fail "$profile: postgres objects rendered with postgres.enabled=false"
+  else
+    ok "$profile: postgres absent when disabled"
+  fi
+}
+
 # ── driver ──────────────────────────────────────────────────────────────────
 profiles=("$@")
 if [ ${#profiles[@]} -eq 0 ]; then

@@ -1,0 +1,20 @@
+{{- if .Values.postgres.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kubexa.postgresFullname" . }}
+  labels:
+    {{- include "kubexa.postgresLabels" . | nindent 4 }}
+spec:
+  # ClusterIP only. Nothing outside the namespace has any business reaching
+  # this, and the connection carries no TLS -- see the sslMode note in the
+  # values block above.
+  type: ClusterIP
+  selector:
+    {{- include "kubexa.postgresSelectorLabels" . | nindent 4 }}
+  ports:
+    - name: postgres
+      port: {{ .Values.postgres.port }}
+      targetPort: postgres
+      protocol: TCP
+{{- end }}
