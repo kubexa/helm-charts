@@ -319,6 +319,17 @@ dependencies:
     version: "0.40.1"
     repository: https://victoriametrics.github.io/helm-charts/
     condition: victoriaMetrics.enabled
+  - name: loki
+    # Pinned exactly, never a range. 7.2.0 (appVersion 3.6.11) is the chart
+    # deployments/loki runs; its values file is where the settings below came
+    # from, and its README records what was learned operating it live --
+    # boot, ingest, compaction, retention, deletion.
+    #
+    # No alias: the values block below has to be named "loki" for the
+    # subchart, and this chart's own name is already that.
+    version: "7.2.0"
+    repository: https://grafana.github.io/helm-charts
+    condition: loki.enabled
   - name: kubexa-agentserver
     alias: agentserver
     # 0.2.2 changes no template: it exists only to move appVersion to 0.3.1 so

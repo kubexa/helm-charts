@@ -10,6 +10,8 @@ postgres:
   enabled: false
 victoriaMetrics:
   enabled: false
+loki:
+  enabled: false
 app:
   ingress:
     host: kubexa.example.com
@@ -34,6 +36,8 @@ apiserver:
           sslMode: require
       victoriametrics:
         url: http://vm.example.internal:8428
+      loki:
+        url: http://loki.example.internal:3100
   secrets:
     redisPasswordSecret:
       name: ""
@@ -63,6 +67,8 @@ consumer:
     usersDb:
       host: pg.example.internal
       sslMode: require
+    loki:
+      url: http://loki.example.internal:3100
   secrets:
     postgresPasswordSecret:
       name: ""

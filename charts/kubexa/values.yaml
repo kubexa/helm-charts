@@ -230,6 +230,128 @@ victoriaMetrics:
     scrape:
       enabled: false
 
+# ─── bundled log store ──────────────────────────────────────────────────────
+#
+# Loki, single binary on a filesystem PVC. The consumer pushes agent logs into
+# it and the apiserver reads them back for the log explorer.
+#
+# Settings taken from deployments/loki/values.yaml, which was proved end to
+# end -- boot, ingest, compaction, retention, deletion -- before it was
+# written. Read that file's README before changing any of them.
+#
+# Why filesystem and not object storage: Loki fetches many chunks per query,
+# so an object store pays its latency per chunk per query. Below roughly
+# 1 TB/day a single binary on a local volume is both faster and simpler. The
+# loki.storage switch stays reachable if that changes; nothing here is built
+# for it.
+#
+# Turn it off and set consumer.config.loki.url and
+# apiserver.config.upstreams.loki.url to your own instance.
+loki:
+  enabled: true
+  fullnameOverride: kubexa-loki
+  deploymentMode: SingleBinary
+  loki:
+    # Multi-tenancy ON. Every push and query carries X-Scope-OrgID, and the id
+    # is the customer's namespace id. With auth off, a single-tenant query
+    # path returns every tenant's logs and nothing errors.
+    auth_enabled: true
+    image:
+      # Pinned ABOVE the chart's own appVersion (7.2.0 ships 3.6.11), matching
+      # the version deployments/loki runs.
+      tag: "3.7.2"
+    commonConfig:
+      path_prefix: /var/loki
+      # 1, not the chart default of 3: one replica cannot replicate to itself,
+      # and the ring reports itself unhealthy forever if asked to.
+      replication_factor: 1
+    storage:
+      type: filesystem
+      filesystem:
+        chunks_directory: /var/loki/chunks
+        rules_directory: /var/loki/rules
+    querier:
+      multi_tenant_queries_enabled: true
+    schemaConfig:
+      configs:
+        - from: "2026-08-06"
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
+    compactor:
+      working_directory: /var/loki/compactor
+      # The whole feature. Without retention_enabled nothing is ever deleted,
+      # no matter what limits_config.retention_period says.
+      retention_enabled: true
+      # Mandatory in Loki 3, not delete-API-only: the process refuses to start
+      # with retention enabled and no delete_request_store.
+      delete_request_store: filesystem
+      compaction_interval: 10m
+      retention_delete_delay: 2h
+      retention_delete_worker_count: 150
+    limits_config:
+      retention_period: 720h
+      retention_stream: []
+      ingestion_rate_mb: 8
+      ingestion_burst_size_mb: 16
+      per_stream_rate_limit: 3MB
+      per_stream_rate_limit_burst: 10MB
+      max_streams_per_user: 10000
+      max_global_streams_per_user: 10000
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h
+      volume_enabled: true
+    query_range:
+      # OFF, against the chart default of true. The log explorer's histogram
+      # computes its own bucket grid; Loki re-aligning ranges onto absolute
+      # step multiples shifts every point off it and the bars stop matching
+      # the rows.
+      align_queries_with_step: false
+    # The runtime_config hook, wired and empty. Per-tenant limits are written
+    # into it at runtime and Loki reloads it live.
+    runtimeConfig: {}
+  singleBinary:
+    replicas: 1
+    persistence:
+      enabled: true
+      size: 20Gi
+      storageClass: ""
+      # The chart would otherwise delete the PVC when the StatefulSet is
+      # deleted or scaled -- a helm uninstall would take the logs with it.
+      enableStatefulSetAutoDeletePVC: false
+      whenDeleted: Retain
+      whenScaled: Retain
+  # Every other deployment mode's replicas at zero: SingleBinary is a mode,
+  # but the chart still renders the SimpleScalable components unless each is
+  # explicitly emptied.
+  write:
+    replicas: 0
+  read:
+    replicas: 0
+  backend:
+    replicas: 0
+  chunksCache:
+    enabled: false
+  resultsCache:
+    enabled: false
+  lokiCanary:
+    enabled: false
+  test:
+    enabled: false
+  gateway:
+    enabled: false
+  sidecar:
+    rules:
+      enabled: false
+  # Namespaced, not cluster-scoped: this chart installs into one namespace and
+  # a cluster-scoped name collision is what went wrong on this install once
+  # already (deployments/loki/README.md).
+  rbac:
+    namespaced: true
+
 # ─── components ─────────────────────────────────────────────────────────────
 
 apiserver:
@@ -260,6 +382,13 @@ apiserver:
           sslMode: disable
       victoriametrics:
         url: http://kubexa-victoriametrics:8428
+      loki:
+        url: http://kubexa-loki:3100
+        # A copy of loki.limits_config.retention_period above, kept in sync by
+        # hand and deliberately: the apiserver shows the retention window in
+        # the log explorer, and reading Loki's /config at boot would make a
+        # store outage into a startup failure. Change one, change both.
+        retentionPeriod: 720h
       agentserver:
         # -internal, not the plain Service: an earlier task moved the admin
         # port onto a second, always-ClusterIP Service so that a LoadBalancer
@@ -426,6 +555,8 @@ consumer:
       username: kubexa_users
       database: kubexa_users
       sslMode: disable
+    loki:
+      url: http://kubexa-loki:3100
   secrets:
     natsPasswordSecret:
       name: kubexa-nats-auth

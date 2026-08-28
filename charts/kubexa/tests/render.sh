@@ -137,6 +137,46 @@ assert_bundled_vm() {
   ok "$profile: bundled victoriametrics"
 }
 
+assert_bundled_loki() {
+  local out=$1 profile=$2
+  [ "$profile" = "default" ] || return 0
+  grep -q 'kubexa-loki' <<< "$out" \
+    || { fail "$profile: no Loki objects rendered"; return; }
+  # No quotes in the pattern: this is a plain substring match, so it matches
+  # the literal whether or not the surrounding config quotes it -- unlike the
+  # two checks below, which land inside the apiserver's/consumer's own
+  # rendered config and DO need the quoting corrected (see the comment on
+  # assert_consumer_users_db_present_with_loki).
+  grep -q 'http://kubexa-loki:3100' <<< "$out" \
+    || { fail "$profile: nothing points at the bundled Loki"; return; }
+  grep -q 'auth_enabled: true' <<< "$out" \
+    || { fail "$profile: Loki rendered with auth_enabled off -- every tenant would read every other tenant's logs"; return; }
+  grep -q 'retention_enabled: true' <<< "$out" \
+    || { fail "$profile: Loki retention is off; nothing would ever be deleted"; return; }
+  ok "$profile: bundled loki"
+}
+
+assert_consumer_users_db_present_with_loki() {
+  local out=$1 profile=$2
+  # Cross-store invariant, checked on every profile: the consumer refuses to
+  # start with a loki url and no usersDb, and the failure is a Validate()
+  # error in a log nobody reads until logs stop arriving.
+  #
+  # The consumer renders its config through a Go struct with yaml tags, same
+  # as the postgres wiring check above: go-yaml quotes every plain string
+  # scalar, so the rendered manifest carries
+  #   url: "http://kubexa-loki:3100"
+  #   database: "kubexa_users"
+  # not the unquoted spelling values.yaml itself uses. A pattern without the
+  # quotes never matches and this assertion would pass for the wrong reason
+  # -- silently, forever, on every profile.
+  if grep -q 'url: "http://kubexa-loki:3100"' <<< "$out"; then
+    grep -q 'database: "kubexa_users"' <<< "$out" \
+      || fail "$profile: consumer has a Loki url but no usersDb -- Validate() refuses that combination"
+  fi
+  ok "$profile: loki/usersDb pairing"
+}
+
 # ── driver ──────────────────────────────────────────────────────────────────
 profiles=("$@")
 if [ ${#profiles[@]} -eq 0 ]; then
