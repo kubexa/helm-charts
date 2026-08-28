@@ -1,0 +1,40 @@
+# Every bundled store turned off and pointed at something the operator
+# already runs. Renders the OTHER half of every guard added in Task 7: if a
+# store can be switched off but the pointers are not moved with it, this
+# profile is where that shows up as a render failure.
+valkey:
+  enabled: false
+nats:
+  enabled: false
+app:
+  ingress:
+    host: kubexa.example.com
+apiserver:
+  ingress:
+    enabled: true
+    host: kubexa.example.com
+  config:
+    upstreams:
+      redis:
+        addrs:
+          - redis.example.internal:6379
+      postgres:
+        app:
+          host: pg.example.internal
+        users:
+          host: pg.example.internal
+  secrets:
+    redisPasswordSecret:
+      name: ""
+    redisPassword: ""
+agentserver:
+  config:
+    nats:
+      url: nats://nats.example.internal:4222
+    redis:
+      addrs:
+        - redis.example.internal:6379
+consumer:
+  config:
+    nats:
+      url: nats://nats.example.internal:4222

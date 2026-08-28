@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# Renders the umbrella under each profile in tests/profiles/ and runs every
+# assertion below against the result. Run from anywhere:
+#
+#   charts/kubexa/tests/render.sh              # every profile
+#   charts/kubexa/tests/render.sh default      # one profile
+#
+# Requires: helm 3, kubeconform. The chart's dependencies must be present --
+# run `helm dependency update charts/kubexa` first if charts/ is empty.
+set -euo pipefail
+cd "$(dirname "$0")/../../.."
+CHART=charts/kubexa
+PROFILES_DIR="$CHART/tests/profiles"
+FAILURES=0
+
+fail() { echo "  FAIL: $*" >&2; FAILURES=$((FAILURES + 1)); }
+ok()   { echo "  ok: $*"; }
+
+render_profile() {
+  helm template kubexa "$CHART" -f "$PROFILES_DIR/$1.yaml" 2>&1
+}
+
+# ── assertions ──────────────────────────────────────────────────────────────
+# Each takes the rendered manifest on stdin as "$1" (a variable, not a pipe,
+# so several assertions can read the same render) and the profile name as $2.
+
+assert_kubeconform() {
+  local out=$1 profile=$2
+  if echo "$out" | kubeconform -strict -ignore-missing-schemas -summary >/dev/null 2>&1; then
+    ok "$profile: kubeconform"
+  else
+    fail "$profile: kubeconform rejected the render"
+    echo "$out" | kubeconform -strict -ignore-missing-schemas -summary || true
+  fi
+}
+
+assert_no_empty_documents() {
+  local out=$1 profile=$2
+  # A template whose whole body is inside an {{- if }} that is false renders
+  # as a bare "---" with nothing after it. Harmless to kubectl, but it means
+  # a guard fired that the profile did not intend.
+  if echo "$out" | awk '
+    BEGIN{RS="---"}
+    {
+      body=0
+      n=split($0, lines, "\n")
+      for (i=1; i<=n; i++) {
+        line=lines[i]
+        gsub(/^[ \t]+|[ \t]+$/, "", line)
+        if (line == "") continue
+        if (line ~ /^#/) continue
+        body=1
+        break
+      }
+      if (!body && NF) found=1
+    }
+    END{exit !found}
+  '; then
+    fail "$profile: an empty document was rendered"
+  else
+    ok "$profile: no empty documents"
+  fi
+}
+
+# ── driver ──────────────────────────────────────────────────────────────────
+profiles=("$@")
+if [ ${#profiles[@]} -eq 0 ]; then
+  for f in "$PROFILES_DIR"/*.yaml; do profiles+=("$(basename "$f" .yaml)"); done
+fi
+
+for profile in "${profiles[@]}"; do
+  echo "profile: $profile"
+  if ! out=$(render_profile "$profile"); then
+    fail "$profile: helm template failed"
+    echo "$out" >&2
+    continue
+  fi
+  for assertion in $(declare -F | awk '{print $3}' | grep '^assert_'); do
+    "$assertion" "$out" "$profile"
+  done
+done
+
+if [ "$FAILURES" -gt 0 ]; then
+  echo "$FAILURES failure(s)" >&2
+  exit 1
+fi
+echo "all profiles clean"
