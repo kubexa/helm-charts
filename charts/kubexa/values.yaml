@@ -180,6 +180,56 @@ nats:
               name: kubexa-nats-auth
               key: password
 
+# ─── bundled metric store ───────────────────────────────────────────────────
+#
+# VictoriaMetrics, single node. The consumer remote-writes agent telemetry
+# into it and the apiserver reads it back for the cluster metric screens.
+#
+# Settings taken from deployments/vm/values.yaml, which was itself
+# reconstructed from a live release -- see that file's header and README.
+#
+# Turn it off and set consumer.config.victoriaMetrics.url and
+# apiserver.config.upstreams.victoriametrics.url to your own instance.
+victoriaMetrics:
+  enabled: true
+  server:
+    # Static name, same rule as every other bundled store: the URLs below are
+    # plain values and Helm does not template values.yaml. This chart's own
+    # "vm.plain.fullname" helper always suffixes a top-level fullnameOverride
+    # with "-server" (the appKey every server-* template renders under), so
+    # a top-level victoriaMetrics.fullnameOverride here would still produce a
+    # Service named "kubexa-victoriametrics-server" -- confirmed by rendering
+    # both ways. Setting it here, under server, is what actually pins the
+    # name to the unsuffixed "kubexa-victoriametrics" every object below
+    # (ServiceAccount, Service, StatefulSet) renders with.
+    fullnameOverride: kubexa-victoriametrics
+    # 30 days. VM enforces retention itself -- there is no compactor to
+    # configure and no equivalent of Loki's retention_period/compactor split.
+    retentionPeriod: 30d
+    persistentVolume:
+      enabled: true
+      # A starting value, not a measurement: the live install holds 25.6 MB
+      # after 50 days on a 50Gi volume. A0.4's sizing guide is where a real
+      # number comes from. A PVC cannot be shrunk in place.
+      size: 20Gi
+      storageClass: ""
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+    # OFF, unlike deployments/vm/values.yaml. That flag makes VM scrape the
+    # cluster itself, which creates a CLUSTER-SCOPED ClusterRole and
+    # ClusterRoleBinding named after the release -- in a chart whose whole
+    # premise is a self-contained namespace install, and in a cluster where
+    # deployments/vm/README.md records a cluster-scoped name collision going
+    # wrong once already. Collection belongs to the agent (roadmap C1); this
+    # is a store.
+    scrape:
+      enabled: false
+
 # ─── components ─────────────────────────────────────────────────────────────
 
 apiserver:
@@ -208,6 +258,8 @@ apiserver:
           database: kubexa_users
           user: kubexa_users
           sslMode: disable
+      victoriametrics:
+        url: http://kubexa-victoriametrics:8428
       agentserver:
         # -internal, not the plain Service: an earlier task moved the admin
         # port onto a second, always-ClusterIP Service so that a LoadBalancer
@@ -356,6 +408,8 @@ consumer:
     nats:
       url: nats://kubexa-nats:4222
       username: kubexa
+    victoriaMetrics:
+      url: http://kubexa-victoriametrics:8428
     # The telemetry writer.
     postgres:
       host: kubexa-postgres

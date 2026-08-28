@@ -8,6 +8,8 @@ nats:
   enabled: false
 postgres:
   enabled: false
+victoriaMetrics:
+  enabled: false
 app:
   ingress:
     host: kubexa.example.com
@@ -30,6 +32,8 @@ apiserver:
         users:
           host: pg.example.internal
           sslMode: require
+      victoriametrics:
+        url: http://vm.example.internal:8428
   secrets:
     redisPasswordSecret:
       name: ""
@@ -51,6 +55,8 @@ consumer:
   config:
     nats:
       url: nats://nats.example.internal:4222
+    victoriaMetrics:
+      url: http://vm.example.internal:8428
     postgres:
       host: pg.example.internal
       sslMode: require

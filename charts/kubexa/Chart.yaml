@@ -310,6 +310,15 @@ dependencies:
     version: "2.14.4"
     repository: https://nats-io.github.io/k8s/helm/charts/
     condition: nats.enabled
+  - name: victoria-metrics-single
+    alias: victoriaMetrics
+    # Pinned exactly, never a range. 0.40.1 (appVersion v1.145.0) is the
+    # version running in deployments/vm today; its values file is where the
+    # settings below came from, and its README records what was learned
+    # operating it.
+    version: "0.40.1"
+    repository: https://victoriametrics.github.io/helm-charts/
+    condition: victoriaMetrics.enabled
   - name: kubexa-agentserver
     alias: agentserver
     # 0.2.2 changes no template: it exists only to move appVersion to 0.3.1 so

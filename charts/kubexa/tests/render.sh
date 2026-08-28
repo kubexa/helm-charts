@@ -104,6 +104,37 @@ assert_postgres_wiring() {
   ok "$profile: postgres wiring"
 }
 
+assert_bundled_vm() {
+  local out=$1 profile=$2
+  [ "$profile" = "default" ] || return 0
+  # Herestrings, not `echo "$out" | grep -q ...`: with a render this size
+  # (~66KB, past a single pipe buffer) a `-q` match early in the stream lets
+  # grep close its end of the pipe before echo finishes writing, and under
+  # `set -o pipefail` the SIGPIPE echo takes fails the whole pipeline even
+  # though grep matched -- reproduced empirically as an intermittent FAIL on
+  # this exact assertion (kubexa-victoriametrics renders near the top of the
+  # manifest, so this was not theoretical).
+  grep -q 'kubexa-victoriametrics' <<< "$out" \
+    || { fail "$profile: no VictoriaMetrics objects rendered"; return; }
+  grep -q 'url: "http://kubexa-victoriametrics:8428"' <<< "$out" \
+    || { fail "$profile: nothing points at the bundled VictoriaMetrics"; return; }
+  # Scrape off: the flag creates cluster-scoped RBAC, deliberately not wanted
+  # here. If this ever fails, read the reasoning in values.yaml before
+  # changing the assertion.
+  #
+  # A plain grep for 'kind: ClusterRoleBinding' plus a separate 'victoria'
+  # match is not a check of this: once ANY VictoriaMetrics object renders,
+  # the word "victoria" appears somewhere in the manifest regardless of
+  # scrape, so the two greps trip on any other subchart's cluster-scoped RBAC
+  # -- present now or added later (e.g. a future Loki bundle). Instead,
+  # require a ClusterRole/ClusterRoleBinding whose own metadata.name
+  # identifies it as VictoriaMetrics's.
+  if grep -E '^(kind: Cluster(Role|RoleBinding))$' -A5 <<< "$out" | grep -qi 'name:.*victoria'; then
+    fail "$profile: VictoriaMetrics rendered cluster-scoped RBAC -- scrape should be off"
+  fi
+  ok "$profile: bundled victoriametrics"
+}
+
 # ── driver ──────────────────────────────────────────────────────────────────
 profiles=("$@")
 if [ ${#profiles[@]} -eq 0 ]; then
