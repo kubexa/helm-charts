@@ -237,6 +237,9 @@ never connects.
 {{- if or (eq .Values.consumer.config.postgres.host $bundledHost) (eq .Values.consumer.config.usersDb.host $bundledHost) }}
 {{- fail (printf "postgres.enabled=false but consumer.config.{postgres,usersDb}.host is still %q, the bundled Postgres's Service name. The consumer's writers then never connect and its readiness never turns ready, with nothing naming Postgres as the cause. Point both at your own Postgres." $bundledHost) }}
 {{- end }}
+{{- if or (eq .Values.consumer.secrets.postgresPasswordSecret.name $bundledSecret) (eq .Values.consumer.secrets.usersDbPasswordSecret.name $bundledSecret) }}
+{{- fail (printf "postgres.enabled=false but consumer.secrets.{postgresPasswordSecret,usersDbPasswordSecret}.name is still %q, the Secret templates/postgres-secret.yaml would have generated. That Secret is never rendered with postgres disabled, and kubexa-consumer's secretKeyRef is deliberately not optional (same contract as the apiserver's), so the pod fails outright with CreateContainerConfigError: secret %q not found -- the container never starts, so /healthz and /readyz never even run and nothing distinguishes this from any other pull-image or scheduling failure. This chart owns no Secret of its own to fall back to: point both at a Secret you created, or set .name to \"\" to leave that credential unset." $bundledSecret $bundledSecret) }}
+{{- end }}
 {{- end }}
 {{- end }}
 
@@ -246,11 +249,21 @@ bundle. `disable` is correct for the bundled instance -- a ClusterIP Service
 with no certificate -- and wrong for anything reached across a network: the
 connection succeeds and the credentials and every row cross the wire in
 clear. The apiserver chart's own default is `require`, so this state can only
-be reached by leaving this chart's bundled-instance value behind.
+be reached by leaving this chart's bundled-instance value behind. The
+consumer's own sslMode default is also `disable`, with no bundled-instance
+qualifier at all in kubexa-consumer's own values.yaml -- it reaches a
+networked Postgres in clear exactly the same way, just through a different
+component: its telemetry writer and its usersDb registry lookups, not the
+apiserver's API.
 */ -}}
 {{- if and (not .Values.postgres.enabled) .Values.apiserver.enabled }}
 {{- if or (eq .Values.apiserver.config.upstreams.postgres.app.sslMode "disable") (eq .Values.apiserver.config.upstreams.postgres.users.sslMode "disable") }}
 {{- fail "postgres.enabled=false but apiserver.config.upstreams.postgres.{app,users}.sslMode is still \"disable\", the value this chart sets for the bundled instance because it is a ClusterIP Service with no certificate. Against a Postgres reached over a network that setting sends the password and every row in clear. Set both to \"require\" (the apiserver chart's own default) or to \"verify-full\" with a root certificate." }}
+{{- end }}
+{{- end }}
+{{- if and (not .Values.postgres.enabled) .Values.consumer.enabled }}
+{{- if or (eq .Values.consumer.config.postgres.sslMode "disable") (eq .Values.consumer.config.usersDb.sslMode "disable") }}
+{{- fail "postgres.enabled=false but consumer.config.{postgres,usersDb}.sslMode is still \"disable\", the value this chart sets for the bundled instance because it is a ClusterIP Service with no certificate. Against a Postgres reached over a network that setting sends the telemetry writer's and the usersDb registry lookup's password, and every row either writes or reads, in clear. Set both to \"require\" or to \"verify-full\" with a root certificate." }}
 {{- end }}
 {{- end }}
 
