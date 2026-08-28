@@ -2,22 +2,38 @@
 
 The Kubexa umbrella chart: one Helm release for the whole platform. That
 means `kubexa-apiserver`, `kubexa-agentserver`, `kubexa-consumer` and
-`kubexa-app` (the web UI), and the infrastructure they need that isn't
-assumed to already exist in your cluster — a bundled Valkey and a bundled
-NATS JetStream. Loki and VictoriaMetrics are
-still not part of this release: they're the consumer's write destinations,
-not a dependency this chart can meaningfully default, so point
-`consumer.config.loki.url` / `consumer.config.victoriaMetrics.url` (and the
-matching `apiserver.config.upstreams.*`) at your own.
+`kubexa-app` (the web UI), and the datastores and message bus they need that
+aren't assumed to already exist in your cluster — bundled Postgres, Valkey,
+VictoriaMetrics, Loki, and NATS JetStream. Every one of them can be turned
+off and pointed at an instance you already run instead; see "What this chart
+bundles" below for the exact flags.
+
+## What this chart bundles
+
+| Store | Values key | Default | Turn it off with |
+|---|---|---|---|
+| Postgres | `postgres` | bundled, 1 replica, 20Gi | `postgres.enabled=false` + `apiserver.config.upstreams.postgres.{app,users}.host`, `sslMode`, and both password Secret refs; `consumer.config.{postgres,usersDb}` |
+| Valkey | `valkey` | bundled, 1Gi | `valkey.enabled=false` + `apiserver.config.upstreams.redis.addrs` and `apiserver.secrets.redisPassword*` |
+| VictoriaMetrics | `victoriaMetrics` | bundled, 30d, 20Gi | `victoriaMetrics.enabled=false` + `consumer.config.victoriaMetrics.url`, `apiserver.config.upstreams.victoriametrics.url` |
+| Loki | `loki` | bundled, 720h, 20Gi | `loki.enabled=false` + `consumer.config.loki.url`, `apiserver.config.upstreams.loki.url` |
+| NATS | `nats` | bundled | `nats.enabled=false` + `agentserver.config.nats.url`, `consumer.config.nats.url` |
+
+Every one of those "turn it off with" lists is enforced: `templates/guards.yaml`
+fails the render if a store is disabled and something is still pointed at the
+name its template would have produced.
+
+The bundled Postgres is a single replica with no failover and no backup. An
+install that needs either should turn it off and point at a managed instance
+or a CloudNativePG cluster.
 
 ## Two ways to install Kubexa
 
 **This chart**, if you want a single `helm install` to stand up the
 platform's own pieces and the datastores/message bus they need, without
 hunting down each component chart and wiring them together by hand. It is a
-thin wrapper: it adds the infrastructure a bundled install needs (Valkey,
-NATS) and passes wiring into each component chart as values. It owns no
-object any component chart itself renders.
+thin wrapper: it adds the infrastructure a bundled install needs (Postgres,
+Valkey, VictoriaMetrics, Loki, NATS) and passes wiring into each component
+chart as values. It owns no object any component chart itself renders.
 
 **The component charts directly** (e.g. `oci://ghcr.io/kubexa/charts/kubexa-apiserver`),
 if you already run your own Redis/Valkey, want independent upgrade cadences
@@ -53,7 +69,10 @@ match.
 
 | Toggle | Default | Effect when `false` |
 |---|---|---|
+| `postgres.enabled` | `true` | No Postgres StatefulSet/Service/Secret is rendered. Point `apiserver.config.upstreams.postgres.{app,users}.host` and `consumer.config.{postgres,usersDb}` at your own instance instead — `templates/guards.yaml` fails the render if either is still left pointed at the bundled Service while `postgres.enabled=false`. |
 | `valkey.enabled` | `true` | No Valkey StatefulSet/Service/Secret is rendered. Point `apiserver.config.upstreams.redis.addrs` at your own Redis- or Valkey-compatible instance instead. |
+| `victoriaMetrics.enabled` | `true` | No VictoriaMetrics StatefulSet/Service is rendered. Point `consumer.config.victoriaMetrics.url` and `apiserver.config.upstreams.victoriametrics.url` at your own instance instead — `templates/guards.yaml` fails the render if either is still left pointed at the bundled Service while `victoriaMetrics.enabled=false`. |
+| `loki.enabled` | `true` | No Loki StatefulSet/Service is rendered. Point `consumer.config.loki.url` and `apiserver.config.upstreams.loki.url` at your own instance instead — `templates/guards.yaml` fails the render if either is still left pointed at the bundled Service while `loki.enabled=false`. |
 | `nats.enabled` | `true` | No NATS StatefulSet/Service/Secret is rendered. Point `agentserver.config.nats.url` and `consumer.config.nats.url` at your own NATS instance instead — `templates/guards.yaml` fails the render if either is still left at the bundled Service's address while `nats.enabled=false`. |
 | `apiserver.enabled` | `true` | The `kubexa-apiserver` dependency is skipped entirely (it's the chart's `condition`). |
 | `agentserver.enabled` | `true` | The `kubexa-agentserver` dependency is skipped entirely. Use this if you're installing it separately (e.g. with its own ingress) or not running it at all yet. |
