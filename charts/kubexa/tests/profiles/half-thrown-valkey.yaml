@@ -1,0 +1,7 @@
+# Valkey off, nothing else moved. This profile MUST fail to render: the
+# apiserver Redis Secret-ref guard (templates/guards.yaml). Nothing else in
+# this file is changed, so the Secret-ref check is the FIRST valkey arm this
+# render reaches. The harness asserts the failure and its message, not a
+# successful render.
+valkey:
+  enabled: false

@@ -1,0 +1,11 @@
+# Postgres stays bundled/enabled; only the apiserver's USERS database host is
+# moved, the consumer's usersDb is not. Must FAIL on the apiserver/consumer
+# Postgres split guard's users-pairing arm (templates/guards.yaml), not the
+# app-pairing arm above it -- the app host is left matching on both sides so
+# that arm does not fire first.
+apiserver:
+  config:
+    upstreams:
+      postgres:
+        users:
+          host: pg.example.internal

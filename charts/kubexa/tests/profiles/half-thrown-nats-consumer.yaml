@@ -1,0 +1,9 @@
+# NATS off, only the agentserver's url moved. Must FAIL on the consumer NATS
+# url guard (templates/guards.yaml), not the agentserver's arm above it --
+# the agentserver is moved specifically so that arm does not fire first.
+nats:
+  enabled: false
+agentserver:
+  config:
+    nats:
+      url: nats://nats.example.internal:4222

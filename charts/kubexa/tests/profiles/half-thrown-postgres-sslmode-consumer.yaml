@@ -1,0 +1,34 @@
+# Same as half-thrown-postgres-sslmode-apiserver.yaml, but the apiserver's
+# sslMode is ALSO moved to "require". Must FAIL on the consumer sslMode
+# guard (templates/guards.yaml), not the apiserver's arm above it -- the
+# apiserver's sslMode is moved specifically so that arm does not fire first.
+postgres:
+  enabled: false
+apiserver:
+  config:
+    upstreams:
+      postgres:
+        app:
+          host: pg.example.internal
+          sslMode: require
+        users:
+          host: pg.example.internal
+          sslMode: require
+  secrets:
+    postgresAppPasswordSecret:
+      name: ""
+    postgresAppPassword: "app-password-example"
+    postgresUsersPasswordSecret:
+      name: ""
+    postgresUsersPassword: "users-password-example"
+consumer:
+  config:
+    postgres:
+      host: pg.example.internal
+    usersDb:
+      host: pg.example.internal
+  secrets:
+    postgresPasswordSecret:
+      name: ""
+    usersDbPasswordSecret:
+      name: ""

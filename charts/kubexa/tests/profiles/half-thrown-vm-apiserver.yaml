@@ -1,0 +1,9 @@
+# VictoriaMetrics off, the consumer entirely disabled so neither the
+# pre-existing apiserver/consumer VM read-write mismatch guard nor the
+# VM-disabled consumer-url arm can fire ahead of the one this profile
+# targets (both require consumer.enabled). Must FAIL on the apiserver
+# VictoriaMetrics url guard (templates/guards.yaml).
+victoriaMetrics:
+  enabled: false
+consumer:
+  enabled: false

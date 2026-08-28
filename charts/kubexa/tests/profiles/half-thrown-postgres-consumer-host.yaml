@@ -1,0 +1,21 @@
+# Postgres off, the apiserver fully moved (host and Secret refs) but the
+# consumer's host pointers left behind. Must FAIL on the consumer Postgres
+# host guard (templates/guards.yaml), not either apiserver arm above it --
+# the apiserver is moved specifically so those arms do not fire first.
+postgres:
+  enabled: false
+apiserver:
+  config:
+    upstreams:
+      postgres:
+        app:
+          host: pg.example.internal
+        users:
+          host: pg.example.internal
+  secrets:
+    postgresAppPasswordSecret:
+      name: ""
+    postgresAppPassword: "app-password-example"
+    postgresUsersPasswordSecret:
+      name: ""
+    postgresUsersPassword: "users-password-example"
