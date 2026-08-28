@@ -6,6 +6,8 @@ valkey:
   enabled: false
 nats:
   enabled: false
+postgres:
+  enabled: false
 app:
   ingress:
     host: kubexa.example.com
