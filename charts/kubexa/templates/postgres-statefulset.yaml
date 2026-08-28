@@ -63,14 +63,26 @@ spec:
           # probe reports ready on a server that answers every query with
           # "the database system is starting up" -- and the apiserver's
           # migrate initContainer then fails on exactly that.
+          #
+          # -h 127.0.0.1, not the bare default: with no -h, pg_isready
+          # connects over the Unix socket, not TCP. The official entrypoint
+          # runs docker-entrypoint-initdb.d against a TEMPORARY server
+          # started with -c listen_addresses='' specifically so nothing else
+          # can reach it yet -- that server's socket answers while port 5432
+          # does not, so a bare `pg_isready -U postgres` reports Ready while
+          # TCP is still closed and the databases may not exist yet, which is
+          # exactly the failure this probe exists to avoid (see the comment
+          # above): the migrate initContainer connects over TCP, fails, and
+          # the pod restarts with backoff. -h 127.0.0.1 forces the same TCP
+          # path every real client uses.
           livenessProbe:
             exec:
-              command: ["pg_isready", "-U", "postgres"]
+              command: ["pg_isready", "-U", "postgres", "-h", "127.0.0.1"]
             initialDelaySeconds: 30
             periodSeconds: 15
           readinessProbe:
             exec:
-              command: ["pg_isready", "-U", "postgres"]
+              command: ["pg_isready", "-U", "postgres", "-h", "127.0.0.1"]
             initialDelaySeconds: 5
             periodSeconds: 10
           securityContext:
