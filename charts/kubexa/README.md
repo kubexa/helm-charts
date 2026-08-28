@@ -336,6 +336,22 @@ render if either is missing:
   required fields — `bucket` + `existingSecret.name` for `s3`,
   `existingClaim` for `filesystem`.
 
+The rest is left at sensible defaults and rarely needs changing:
+
+- `backup.retention.keep` (default `14`) — how many dump generations the
+  binary keeps at the destination before pruning older ones.
+- `backup.workDir.sizeLimit` (default `10Gi`) — the `emptyDir` size limit for
+  `/work`, where the dump is staged (compressed and encrypted) before upload.
+  Too small for the actual database size and the job fails mid-run rather
+  than mid-upload.
+- `backup.victoriaMetrics.url` (default `""`, disabled) — where the job pushes
+  its own run metrics (success/failure, duration, size). Point it at the
+  bundled instance (`http://kubexa-victoriametrics:8428`) or your own, or
+  leave it empty to run without job-level metrics.
+- `backup.resources` (default `1 CPU` / `1Gi` limits, `100m` / `128Mi`
+  requests) — the CronJob container's own `resources` block, passed straight
+  through.
+
 ```yaml
 backup:
   enabled: true
