@@ -585,3 +585,51 @@ consumer:
     usersDbPasswordSecret:
       name: kubexa-postgres-auth
       key: users-password
+
+# ─── backup ──────────────────────────────────────────────────────────────────
+#
+# Nightly logical backup of the app and users databases. It reuses
+# apiserver.config.upstreams.postgres and the apiserver password Secret
+# references: a backup with its own connection settings would keep dumping the
+# old database after the apiserver moved, and report success every night.
+backup:
+  enabled: false
+  schedule: "0 2 * * *"
+  image: ghcr.io/kubexa/kubexa-backup:0.1.0
+  imagePullPolicy: IfNotPresent
+  workDir:
+    sizeLimit: 10Gi
+  retention:
+    keep: 14
+  encryption:
+    keyId: default
+    existingSecret:
+      name: ""
+      key: encryption-key
+  destination:
+    driver: s3
+    s3:
+      endpoint: ""
+      region: ""
+      bucket: ""
+      prefix: kubexa
+      useSSL: true
+      forcePathStyle: false
+      existingSecret:
+        name: ""
+        accessKeyIdKey: access-key-id
+        secretAccessKeyKey: secret-access-key
+    filesystem:
+      existingClaim: ""
+      path: /backups
+      prefix: kubexa
+  # Same default as apiserver.config.upstreams.victoriametrics.url (line ~402)
+  # and consumer.config.victoriaMetrics.url (line ~559) -- keep all three in
+  # step. Unlike those two, this one is guarded (templates/guards.yaml): an
+  # empty url here does not stop the backup from running, it stops the backup
+  # from ever being OBSERVABLE, which is the trap I3 closed.
+  victoriaMetrics:
+    url: http://kubexa-victoriametrics:8428
+  resources:
+    limits: { cpu: 1, memory: 1Gi }
+    requests: { cpu: 100m, memory: 128Mi }

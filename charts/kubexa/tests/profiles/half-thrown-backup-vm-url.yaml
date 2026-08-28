@@ -1,0 +1,23 @@
+# backup.enabled=true with encryption and an s3 destination fully configured
+# (so those two guards are satisfied) but victoriaMetrics.url cleared back to
+# empty. This profile MUST fail to render: templates/guards.yaml refuses an
+# unobservable backup for the same reason it refuses an unencrypted or
+# destination-less one -- a working backup nobody can observe is
+# indistinguishable from one that silently stopped running, which is exactly
+# the trap an empty default would otherwise leave for anyone who skips this
+# value.
+backup:
+  enabled: true
+  encryption:
+    existingSecret:
+      name: kubexa-backup-encryption
+  victoriaMetrics:
+    url: ""
+  destination:
+    driver: s3
+    s3:
+      endpoint: s3.example.com
+      region: us-east-1
+      bucket: kubexa-backups
+      existingSecret:
+        name: kubexa-backup-s3-credentials
