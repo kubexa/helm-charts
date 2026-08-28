@@ -106,6 +106,67 @@ assert_postgres_wiring() {
   ok "$profile: postgres wiring"
 }
 
+assert_backup_absent_by_default() {
+  local out=$1 profile=$2
+  case "$profile" in
+    backup-s3|backup-filesystem) return 0 ;;
+  esac
+  # Keyed on the object's own name, not a bare "kind: CronJob" -- this chart
+  # may grow an unrelated CronJob later, and a bare kind check would then fail
+  # every other profile for a reason that has nothing to do with backup.
+  if grep -q 'name: kubexa-backup' <<< "$out"; then
+    fail "$profile: kubexa-backup objects rendered with backup.enabled=false"
+  else
+    ok "$profile: no backup objects by default"
+  fi
+}
+
+assert_backup_cronjob() {
+  local out=$1 profile=$2
+  case "$profile" in
+    backup-s3|backup-filesystem) ;;
+    *) return 0 ;;
+  esac
+  for needle in "kind: CronJob" "name: kubexa-backup" "KUBEXA_BACKUP_ENCRYPTION_KEY" "sizeLimit: 10Gi" "KUBEXA_APISERVER_POSTGRES_APP_PASSWORD"; do
+    if grep -qF "$needle" <<< "$out"; then
+      ok "$profile: $needle"
+    else
+      fail "$profile: missing $needle"
+    fi
+  done
+  # fsGroup: 70 is a controller ruling, not optional: the image's /work
+  # directory is owned by uid 70, but any volume mounted over it (this
+  # CronJob's emptyDir) arrives root-owned, and without fsGroup: 70 the uid-70
+  # process cannot write its dump staging area.
+  grep -qF 'fsGroup: 70' <<< "$out" \
+    && ok "$profile: fsGroup: 70" \
+    || fail "$profile: missing fsGroup: 70"
+  # No password may ever appear as a plain env value -- only via
+  # secretKeyRef. A literal password value inlined in a ConfigMap/env would be
+  # readable by anyone who can `kubectl get cronjob -o yaml`.
+  if grep -qF 'valueFrom:' <<< "$out" && grep -qF 'secretKeyRef:' <<< "$out"; then
+    ok "$profile: passwords via secretKeyRef"
+  else
+    fail "$profile: expected secretKeyRef-backed password env vars"
+  fi
+  if [ "$profile" = "backup-s3" ]; then
+    grep -qF 'KUBEXA_BACKUP_S3_BUCKET' <<< "$out" \
+      && ok "$profile: KUBEXA_BACKUP_S3_BUCKET" \
+      || fail "$profile: missing KUBEXA_BACKUP_S3_BUCKET"
+    grep -qF 'KUBEXA_BACKUP_FS_PATH' <<< "$out" \
+      && fail "$profile: s3 driver should not carry KUBEXA_BACKUP_FS_PATH" \
+      || ok "$profile: no filesystem env var on the s3 driver"
+  fi
+  if [ "$profile" = "backup-filesystem" ]; then
+    grep -qF 'claimName: kubexa-backup-pvc' <<< "$out" \
+      && ok "$profile: claimName: kubexa-backup-pvc" \
+      || fail "$profile: missing claimName: kubexa-backup-pvc"
+    grep -qF 'KUBEXA_BACKUP_S3_BUCKET' <<< "$out" \
+      && fail "$profile: filesystem driver should not carry S3 env vars" \
+      || ok "$profile: no S3 env vars on the filesystem driver"
+  fi
+}
+
 assert_bundled_vm() {
   local out=$1 profile=$2
   [ "$profile" = "default" ] || return 0
@@ -300,6 +361,7 @@ half_thrown_needle() {
     half-thrown-loki-apiserver)            echo "apiserver.config.upstreams.loki.url is still" ;;
     half-thrown-postgres-split-app)        echo "differs from consumer.config.postgres.host" ;;
     half-thrown-postgres-split-users)      echo "differs from consumer.config.usersDb.host" ;;
+    half-thrown-backup-encryption)         echo "backup.enabled=true requires backup.encryption.existingSecret.name" ;;
     *)                echo "" ;;
   esac
 }

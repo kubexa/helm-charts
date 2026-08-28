@@ -1,0 +1,126 @@
+{{- if .Values.backup.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "kubexa.backupFullname" . }}
+  labels:
+    {{- include "kubexa.backupLabels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  # Forbid, not Allow: two concurrent dumps of the same database write the same
+  # version directory and race on the manifest that commits it.
+  concurrencyPolicy: Forbid
+  # Without a deadline a controller outage queues every missed run and then
+  # fires them all at once.
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            {{- include "kubexa.backupLabels" . | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          {{- with .Values.global.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            runAsNonRoot: true
+            # 70 is the postgres user in the alpine image this job's image is
+            # built from, and the uid the work volume must be writable by.
+            runAsUser: 70
+            runAsGroup: 70
+            fsGroup: 70
+          containers:
+            - name: backup
+              image: {{ .Values.backup.image | quote }}
+              imagePullPolicy: {{ .Values.backup.imagePullPolicy }}
+              args: ["run"]
+              env:
+                - name: KUBEXA_BACKUP_CONFIG
+                  value: /etc/kubexa/backup.yaml
+                - name: KUBEXA_BACKUP_WORK_DIR
+                  value: /work
+                - name: KUBEXA_BACKUP_DRIVER
+                  value: {{ .Values.backup.destination.driver | quote }}
+                - name: KUBEXA_BACKUP_KEEP
+                  value: {{ .Values.backup.retention.keep | quote }}
+                - name: KUBEXA_BACKUP_VM_URL
+                  value: {{ .Values.backup.victoriaMetrics.url | quote }}
+                - name: KUBEXA_BACKUP_ENCRYPTION_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.backup.encryption.existingSecret.name }}
+                      key: {{ .Values.backup.encryption.existingSecret.key }}
+                {{- if eq .Values.backup.destination.driver "s3" }}
+                - name: KUBEXA_BACKUP_PREFIX
+                  value: {{ .Values.backup.destination.s3.prefix | quote }}
+                - name: KUBEXA_BACKUP_S3_ENDPOINT
+                  value: {{ .Values.backup.destination.s3.endpoint | quote }}
+                - name: KUBEXA_BACKUP_S3_REGION
+                  value: {{ .Values.backup.destination.s3.region | quote }}
+                - name: KUBEXA_BACKUP_S3_BUCKET
+                  value: {{ .Values.backup.destination.s3.bucket | quote }}
+                # Quoted on purpose: an unquoted true reaches the container as
+                # a YAML boolean the API server rejects for an env value.
+                - name: KUBEXA_BACKUP_S3_USE_SSL
+                  value: {{ .Values.backup.destination.s3.useSSL | quote }}
+                - name: KUBEXA_BACKUP_S3_FORCE_PATH_STYLE
+                  value: {{ .Values.backup.destination.s3.forcePathStyle | quote }}
+                - name: KUBEXA_BACKUP_S3_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.backup.destination.s3.existingSecret.name }}
+                      key: {{ .Values.backup.destination.s3.existingSecret.accessKeyIdKey }}
+                - name: KUBEXA_BACKUP_S3_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.backup.destination.s3.existingSecret.name }}
+                      key: {{ .Values.backup.destination.s3.existingSecret.secretAccessKeyKey }}
+                {{- else }}
+                - name: KUBEXA_BACKUP_PREFIX
+                  value: {{ .Values.backup.destination.filesystem.prefix | quote }}
+                - name: KUBEXA_BACKUP_FS_PATH
+                  value: {{ .Values.backup.destination.filesystem.path | quote }}
+                {{- end }}
+                - name: KUBEXA_APISERVER_POSTGRES_APP_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.apiserver.secrets.postgresAppPasswordSecret.name }}
+                      key: {{ .Values.apiserver.secrets.postgresAppPasswordSecret.key }}
+                - name: KUBEXA_APISERVER_POSTGRES_USERS_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.apiserver.secrets.postgresUsersPasswordSecret.name }}
+                      key: {{ .Values.apiserver.secrets.postgresUsersPasswordSecret.key }}
+              volumeMounts:
+                - name: work
+                  mountPath: /work
+                - name: config
+                  mountPath: /etc/kubexa
+                  readOnly: true
+                {{- if eq .Values.backup.destination.driver "filesystem" }}
+                - name: backups
+                  mountPath: {{ .Values.backup.destination.filesystem.path }}
+                {{- end }}
+              resources:
+                {{- toYaml .Values.backup.resources | nindent 16 }}
+          volumes:
+            # The dump lands here before it is sealed and uploaded: BlobStore.Put
+            # needs the size up front, and both checksums come from the file.
+            - name: work
+              emptyDir:
+                sizeLimit: {{ .Values.backup.workDir.sizeLimit }}
+            - name: config
+              secret:
+                secretName: {{ printf "%s-config" (include "kubexa.backupFullname" .) }}
+            {{- if eq .Values.backup.destination.driver "filesystem" }}
+            - name: backups
+              persistentVolumeClaim:
+                claimName: {{ .Values.backup.destination.filesystem.existingClaim }}
+            {{- end }}
+{{- end }}

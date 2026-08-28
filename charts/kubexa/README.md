@@ -22,9 +22,10 @@ Every one of those "turn it off with" lists is enforced: `templates/guards.yaml`
 fails the render if a store is disabled and something is still pointed at the
 name its template would have produced.
 
-The bundled Postgres is a single replica with no failover and no backup. An
-install that needs either should turn it off and point at a managed instance
-or a CloudNativePG cluster.
+The bundled Postgres is a single replica with no failover. An install that
+needs failover should turn it off and point at a managed instance or a
+CloudNativePG cluster instead. It does have an optional nightly logical
+backup — see "Nightly backups" below.
 
 ## Two ways to install Kubexa
 
@@ -308,6 +309,54 @@ host by longest prefix, so `apiserver.ingress.path` needs to stay `/api/v1`
 Set `app.enabled=false` to skip the `kubexa-app` dependency entirely — e.g.
 if you're serving the UI some other way, or not yet.
 
+## Nightly backups
+
+`backup.enabled` (default `false`) adds a `CronJob` that runs the
+`kubexa-backup` image on a schedule (default `0 2 * * *`) and takes an
+encrypted logical dump of both the app and users databases.
+
+It carries **no connection settings of its own** — it reads
+`apiserver.config.upstreams.postgres` (rendered into a config Secret) and the
+two `apiserver.secrets.postgres{App,Users}PasswordSecret` refs the apiserver
+itself uses. A backup with its own copy of those settings would keep dumping
+the database the apiserver has since moved off, and report success every
+night while protecting nothing — the same reasoning behind the
+Loki/VictoriaMetrics/Postgres agreement guards above, applied to a third
+consumer of the same connection.
+
+Turning it on requires two more values, and `templates/guards.yaml` fails the
+render if either is missing:
+
+- `backup.encryption.existingSecret.name` — a Secret (created outside this
+  chart) holding the encryption key at `backup.encryption.existingSecret.key`
+  (default key name `encryption-key`). Unconditional: an unencrypted dump
+  carries password hashes, sealed secrets and tokens, and this chart will not
+  render one.
+- `backup.destination.driver` (`s3` or `filesystem`) and that driver's own
+  required fields — `bucket` + `existingSecret.name` for `s3`,
+  `existingClaim` for `filesystem`.
+
+```yaml
+backup:
+  enabled: true
+  encryption:
+    existingSecret:
+      name: kubexa-backup-encryption
+  destination:
+    driver: s3
+    s3:
+      bucket: kubexa-backups
+      region: us-east-1
+      existingSecret:
+        name: kubexa-backup-s3-credentials
+```
+
+The CronJob's pod runs as uid/gid 70 (the `postgres` user in the image's
+`postgres:17-alpine` base, which also owns `/work`) and sets
+`securityContext.fsGroup: 70` at the pod level — the `emptyDir` mounted over
+`/work` for dump staging arrives root-owned otherwise, and the uid-70 process
+could not write to it.
+
 ## One release per namespace
 
 `valkey.serviceName` (default `kubexa-valkey`) is a **static** name, not
@@ -352,9 +401,10 @@ defined. `.github/workflows/umbrella-release.yaml` runs it on every push to
 `main` that touches this chart, before packaging — a chart that fails this
 script never reaches GHCR.
 
-`default` and `external-stores` are the two profiles expected to render
-cleanly; every `half-thrown-*` profile is expected to fail, and the script
-checks that it failed for the *right* reason, not merely that it failed.
+`default`, `external-stores`, `backup-s3` and `backup-filesystem` are the
+profiles expected to render cleanly; every `half-thrown-*` profile is
+expected to fail, and the script checks that it failed for the *right*
+reason, not merely that it failed.
 
 ## Component documentation
 

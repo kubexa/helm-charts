@@ -585,3 +585,45 @@ consumer:
     usersDbPasswordSecret:
       name: kubexa-postgres-auth
       key: users-password
+
+# ─── backup ──────────────────────────────────────────────────────────────────
+#
+# Nightly logical backup of the app and users databases. It reuses
+# apiserver.config.upstreams.postgres and the apiserver password Secret
+# references: a backup with its own connection settings would keep dumping the
+# old database after the apiserver moved, and report success every night.
+backup:
+  enabled: false
+  schedule: "0 2 * * *"
+  image: ghcr.io/kubexa/kubexa-backup:0.1.0
+  imagePullPolicy: IfNotPresent
+  workDir:
+    sizeLimit: 10Gi
+  retention:
+    keep: 14
+  encryption:
+    existingSecret:
+      name: ""
+      key: encryption-key
+  destination:
+    driver: s3
+    s3:
+      endpoint: ""
+      region: ""
+      bucket: ""
+      prefix: kubexa
+      useSSL: true
+      forcePathStyle: false
+      existingSecret:
+        name: ""
+        accessKeyIdKey: access-key-id
+        secretAccessKeyKey: secret-access-key
+    filesystem:
+      existingClaim: ""
+      path: /backups
+      prefix: kubexa
+  victoriaMetrics:
+    url: ""
+  resources:
+    limits: { cpu: 1, memory: 1Gi }
+    requests: { cpu: 100m, memory: 128Mi }
