@@ -37,6 +37,64 @@ valkey:
       cpu: 500m
       memory: 512Mi
 
+# ─── bundled relational store ───────────────────────────────────────────────
+#
+# One Postgres, two databases: kubexa_app (telemetry, clusters, alerts) and
+# kubexa_users (identity, RBAC, audit). The apiserver and the consumer each
+# hold both as separate upstreams with separate credentials, so this chart
+# creates two roles rather than one shared user -- the users database holds
+# password hashes and refresh tokens and does not need to be readable by the
+# code that writes telemetry.
+#
+# Single replica, no HA. That is the honest scope: a self-hosted install that
+# needs failover should turn this off and point at a managed Postgres or a
+# CloudNativePG cluster. Backups are A0.3's subject, not this chart's.
+#
+# Turn it off and set apiserver.config.upstreams.postgres.{app,users}.host --
+# and sslMode back to `require` -- to your own instance.
+postgres:
+  enabled: true
+  # A static name, not <release>-postgres: Helm does not template values.yaml,
+  # so a release-derived name could not be written into the apiserver's and
+  # consumer's values below. Same rule as valkey.serviceName and the bundled
+  # NATS -- one umbrella release per namespace.
+  serviceName: kubexa-postgres
+  # 17-alpine: the image the migrations are tested against, and the last
+  # major with a maintained alpine variant at the time of writing. Pin the
+  # major -- a silent jump to 18 on a StatefulSet whose PVC holds a 17 data
+  # directory is a pod that will not start, with the reason only in its log.
+  image: postgres:17-alpine
+  port: 5432
+  # Generated on first install and preserved across upgrades. Set to pin.
+  # These are the values written into kubexa-postgres-auth; the apiserver and
+  # the consumer read them from that Secret by reference, never by value.
+  superuserPassword: ""
+  appPassword: ""
+  usersPassword: ""
+  # The two database names, matching kubexa-apiserver's own defaults
+  # (helm/kubexa-apiserver/values.yaml: config.upstreams.postgres.*.database).
+  # Changing one here means changing it in apiserver.config and
+  # consumer.config below, in the same commit.
+  appDatabase: kubexa_app
+  usersDatabase: kubexa_users
+  appUser: kubexa_app
+  usersUser: kubexa_users
+  persistence:
+    enabled: true
+    storageClass: ""
+    # Telemetry rows, not chunks: the metric and log bodies live in
+    # VictoriaMetrics and Loki. 20Gi is a starting value, not a measurement --
+    # A0.4's sizing guide is where a real number comes from. A PVC cannot be
+    # shrunk in place, so err small and grow.
+    size: 20Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+
 # ─── bundled message bus ────────────────────────────────────────────────────
 #
 # NATS JetStream: the telemetry pipeline's spine. The agentserver publishes to
@@ -122,6 +180,196 @@ nats:
               name: kubexa-nats-auth
               key: password
 
+# ─── bundled metric store ───────────────────────────────────────────────────
+#
+# VictoriaMetrics, single node. The consumer remote-writes agent telemetry
+# into it and the apiserver reads it back for the cluster metric screens.
+#
+# Settings taken from deployments/vm/values.yaml, which was itself
+# reconstructed from a live release -- see that file's header and README.
+#
+# Turn it off and set consumer.config.victoriaMetrics.url and
+# apiserver.config.upstreams.victoriametrics.url to your own instance.
+victoriaMetrics:
+  enabled: true
+  server:
+    # Static name, same rule as every other bundled store: the URLs below are
+    # plain values and Helm does not template values.yaml. This chart's own
+    # "vm.plain.fullname" helper always suffixes a top-level fullnameOverride
+    # with "-server" (the appKey every server-* template renders under), so
+    # a top-level victoriaMetrics.fullnameOverride here would still produce a
+    # Service named "kubexa-victoriametrics-server" -- confirmed by rendering
+    # both ways. Setting it here, under server, is what actually pins the
+    # name to the unsuffixed "kubexa-victoriametrics" every object below
+    # (ServiceAccount, Service, StatefulSet) renders with.
+    fullnameOverride: kubexa-victoriametrics
+    # 30 days. VM enforces retention itself -- there is no compactor to
+    # configure and no equivalent of Loki's retention_period/compactor split.
+    retentionPeriod: 30d
+    persistentVolume:
+      enabled: true
+      # A starting value, not a measurement: the live install holds 25.6 MB
+      # after 50 days on a 50Gi volume. A0.4's sizing guide is where a real
+      # number comes from. A PVC cannot be shrunk in place.
+      size: 20Gi
+      storageClass: ""
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+    # OFF, unlike deployments/vm/values.yaml. That flag makes VM scrape the
+    # cluster itself, which creates a CLUSTER-SCOPED ClusterRole and
+    # ClusterRoleBinding named after the release -- in a chart whose whole
+    # premise is a self-contained namespace install, and in a cluster where
+    # deployments/vm/README.md records a cluster-scoped name collision going
+    # wrong once already. Collection belongs to the agent (roadmap C1); this
+    # is a store.
+    scrape:
+      enabled: false
+
+# ─── bundled log store ──────────────────────────────────────────────────────
+#
+# Loki, single binary on a filesystem PVC. The consumer pushes agent logs into
+# it and the apiserver reads them back for the log explorer.
+#
+# Settings taken from deployments/loki/values.yaml, which was proved end to
+# end -- boot, ingest, compaction, retention, deletion -- before it was
+# written. Read that file's README before changing any of them.
+#
+# Why filesystem and not object storage: Loki fetches many chunks per query,
+# so an object store pays its latency per chunk per query. Below roughly
+# 1 TB/day a single binary on a local volume is both faster and simpler. The
+# loki.storage switch stays reachable if that changes; nothing here is built
+# for it.
+#
+# Turn it off and set consumer.config.loki.url and
+# apiserver.config.upstreams.loki.url to your own instance.
+loki:
+  enabled: true
+  fullnameOverride: kubexa-loki
+  # fullnameOverride alone is not enough: this chart's "loki.name" helper
+  # (default "loki") -- not "loki.fullname" -- names the headless Service
+  # (single-binary/service-headless.yaml: "{{ include \"loki.name\" .
+  # }}-headless") and the generated config ConfigMap
+  # (values.yaml's loki.generatedConfigObjectName default:
+  # '{{ include "loki.name" . }}'). Left at the chart default those two
+  # objects render as "loki-headless" and "loki" -- unprefixed, colliding
+  # with any other release named "loki" in the namespace, and in the
+  # headless Service's case naming something the StatefulSet's own
+  # "serviceName: {{ include \"loki.singleBinaryFullname\" . }}-headless"
+  # (which DOES honor fullnameOverride) does not actually point at:
+  # "kubexa-loki-headless" resolving to nothing. nameOverride pins
+  # "loki.name" to the same "kubexa-loki" root so every name it drives
+  # lines up with fullnameOverride's. Verified against the render: every
+  # object this subchart produces now carries a "kubexa-loki" prefix (see
+  # tests/render.sh's assert_bundled_loki, which checks the headless
+  # Service by name).
+  nameOverride: kubexa-loki
+  deploymentMode: SingleBinary
+  loki:
+    # Multi-tenancy ON. Every push and query carries X-Scope-OrgID, and the id
+    # is the customer's namespace id. With auth off, a single-tenant query
+    # path returns every tenant's logs and nothing errors.
+    auth_enabled: true
+    image:
+      # Pinned ABOVE the chart's own appVersion (7.2.0 ships 3.6.11), matching
+      # the version deployments/loki runs.
+      tag: "3.7.2"
+    commonConfig:
+      path_prefix: /var/loki
+      # 1, not the chart default of 3: one replica cannot replicate to itself,
+      # and the ring reports itself unhealthy forever if asked to.
+      replication_factor: 1
+    storage:
+      type: filesystem
+      filesystem:
+        chunks_directory: /var/loki/chunks
+        rules_directory: /var/loki/rules
+    querier:
+      multi_tenant_queries_enabled: true
+    schemaConfig:
+      configs:
+        - from: "2026-08-06"
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
+    compactor:
+      working_directory: /var/loki/compactor
+      # The whole feature. Without retention_enabled nothing is ever deleted,
+      # no matter what limits_config.retention_period says.
+      retention_enabled: true
+      # Mandatory in Loki 3, not delete-API-only: the process refuses to start
+      # with retention enabled and no delete_request_store.
+      delete_request_store: filesystem
+      compaction_interval: 10m
+      retention_delete_delay: 2h
+      retention_delete_worker_count: 150
+    limits_config:
+      retention_period: 720h
+      retention_stream: []
+      ingestion_rate_mb: 8
+      ingestion_burst_size_mb: 16
+      per_stream_rate_limit: 3MB
+      per_stream_rate_limit_burst: 10MB
+      max_streams_per_user: 10000
+      max_global_streams_per_user: 10000
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h
+      volume_enabled: true
+    query_range:
+      # OFF, against the chart default of true. The log explorer's histogram
+      # computes its own bucket grid; Loki re-aligning ranges onto absolute
+      # step multiples shifts every point off it and the bars stop matching
+      # the rows.
+      align_queries_with_step: false
+    # The runtime_config hook, wired and empty. Per-tenant limits are written
+    # into it at runtime and Loki reloads it live.
+    runtimeConfig: {}
+  singleBinary:
+    replicas: 1
+    persistence:
+      enabled: true
+      size: 20Gi
+      storageClass: ""
+      # The chart would otherwise delete the PVC when the StatefulSet is
+      # deleted or scaled -- a helm uninstall would take the logs with it.
+      enableStatefulSetAutoDeletePVC: false
+      whenDeleted: Retain
+      whenScaled: Retain
+  # Every other deployment mode's replicas at zero: SingleBinary is a mode,
+  # but the chart still renders the SimpleScalable components unless each is
+  # explicitly emptied.
+  write:
+    replicas: 0
+  read:
+    replicas: 0
+  backend:
+    replicas: 0
+  chunksCache:
+    enabled: false
+  resultsCache:
+    enabled: false
+  lokiCanary:
+    enabled: false
+  test:
+    enabled: false
+  gateway:
+    enabled: false
+  sidecar:
+    rules:
+      enabled: false
+  # Namespaced, not cluster-scoped: this chart installs into one namespace and
+  # a cluster-scoped name collision is what went wrong on this install once
+  # already (deployments/loki/README.md).
+  rbac:
+    namespaced: true
+
 # ─── components ─────────────────────────────────────────────────────────────
 
 apiserver:
@@ -135,9 +383,30 @@ apiserver:
           - kubexa-valkey:6379
       postgres:
         app:
-          host: ""
+          host: kubexa-postgres
+          database: kubexa_app
+          user: kubexa_app
+          # The bundled Postgres is a ClusterIP Service with no certificate,
+          # so `require` -- the apiserver chart's own default, and the right
+          # default for a database across a network -- fails the connection
+          # outright. Turn postgres.enabled off and this must go back to
+          # require; templates/guards.yaml refuses the combination that
+          # leaves it here.
+          sslMode: disable
         users:
-          host: ""
+          host: kubexa-postgres
+          database: kubexa_users
+          user: kubexa_users
+          sslMode: disable
+      victoriametrics:
+        url: http://kubexa-victoriametrics:8428
+      loki:
+        url: http://kubexa-loki:3100
+        # A copy of loki.limits_config.retention_period above, kept in sync by
+        # hand and deliberately: the apiserver shows the retention window in
+        # the log explorer, and reading Loki's /config at boot would make a
+        # store outage into a startup failure. Change one, change both.
+        retentionPeriod: 720h
       agentserver:
         # -internal, not the plain Service: an earlier task moved the admin
         # port onto a second, always-ClusterIP Service so that a LoadBalancer
@@ -187,6 +456,15 @@ apiserver:
     redisPasswordSecret:
       name: kubexa-valkey-auth
       key: password
+    # By reference, not by value: templates/postgres-secret.yaml generates
+    # these at render time and a generated value cannot travel through values
+    # into a sibling chart. Requires kubexa-apiserver >= 0.4.23.
+    postgresAppPasswordSecret:
+      name: kubexa-postgres-auth
+      key: app-password
+    postgresUsersPasswordSecret:
+      name: kubexa-postgres-auth
+      key: users-password
     # Never rendered into config, only this Secret key -- see
     # config.notifications.webPush above. Empty by default, same as every
     # other credential in this file; it never appears in this repo by value.
@@ -277,7 +555,33 @@ consumer:
     nats:
       url: nats://kubexa-nats:4222
       username: kubexa
+    victoriaMetrics:
+      url: http://kubexa-victoriametrics:8428
+    # The telemetry writer.
+    postgres:
+      host: kubexa-postgres
+      port: 5432
+      username: kubexa_app
+      database: kubexa_app
+      sslMode: disable
+    # The cluster registry, NOT an optional extra: it resolves each cluster's
+    # namespace into the X-Scope-OrgID every Loki push carries, and the
+    # consumer's Validate() refuses a non-empty loki.url with no usersDb.
+    usersDb:
+      host: kubexa-postgres
+      port: 5432
+      username: kubexa_users
+      database: kubexa_users
+      sslMode: disable
+    loki:
+      url: http://kubexa-loki:3100
   secrets:
     natsPasswordSecret:
       name: kubexa-nats-auth
       key: password
+    postgresPasswordSecret:
+      name: kubexa-postgres-auth
+      key: app-password
+    usersDbPasswordSecret:
+      name: kubexa-postgres-auth
+      key: users-password

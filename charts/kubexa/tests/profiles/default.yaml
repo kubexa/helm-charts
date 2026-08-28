@@ -1,0 +1,25 @@
+# The empty-cluster install: every store bundled, nothing external supplied.
+# This is the profile A0.2 exists to make work, and the one Task 9 installs
+# for real. app.ingress.enabled is on, not just app.ingress.host -- host
+# alone leaves the SPA's own Ingress unrendered (enabled defaults to false),
+# so the only Ingress in the manifest was the apiserver's and the UI this
+# install is meant to serve had no route to it at all. With the app Ingress
+# on, every guard scoped under app.ingress.enabled is live for this profile
+# too, which is why ws.origins is filled in below alongside its sibling
+# corsAllowedOrigins -- the app.ingress.enabled=true guard block fails the
+# render on an empty ws.origins the same way it already did on an empty
+# corsAllowedOrigins.
+app:
+  ingress:
+    enabled: true
+    host: kubexa.example.com
+apiserver:
+  ingress:
+    enabled: true
+    host: kubexa.example.com
+  config:
+    corsAllowedOrigins:
+      - https://kubexa.example.com
+    ws:
+      origins:
+        - https://kubexa.example.com

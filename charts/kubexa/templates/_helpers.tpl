@@ -14,6 +14,22 @@ app.kubernetes.io/name: valkey
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
+{{- define "kubexa.postgresFullname" -}}
+{{- .Values.postgres.serviceName -}}
+{{- end }}
+
+{{- define "kubexa.postgresLabels" -}}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+app.kubernetes.io/name: postgres
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{- define "kubexa.postgresSelectorLabels" -}}
+app.kubernetes.io/name: postgres
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
 {{- define "kubexa.natsLabels" -}}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 app.kubernetes.io/name: nats

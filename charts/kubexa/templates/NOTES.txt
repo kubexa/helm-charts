@@ -7,6 +7,9 @@ Components:
   consumer:    {{ if .Values.consumer.enabled }}enabled{{ else }}disabled{{ end }}
   valkey:      {{ if .Values.valkey.enabled }}enabled ({{ include "kubexa.valkeyFullname" . }}:{{ .Values.valkey.port }}){{ else }}disabled{{ end }}
   nats:        {{ if .Values.nats.enabled }}enabled (kubexa-nats:4222){{ else }}disabled{{ end }}
+  postgres:    {{ if .Values.postgres.enabled }}enabled ({{ include "kubexa.postgresFullname" . }}:{{ .Values.postgres.port }}, databases {{ .Values.postgres.appDatabase }} + {{ .Values.postgres.usersDatabase }}){{ else }}disabled{{ end }}
+  victoria:    {{ if .Values.victoriaMetrics.enabled }}enabled ({{ .Values.victoriaMetrics.server.fullnameOverride }}:8428, retention {{ .Values.victoriaMetrics.server.retentionPeriod }}){{ else }}disabled{{ end }}
+  loki:        {{ if .Values.loki.enabled }}enabled ({{ .Values.loki.fullnameOverride }}:3100, retention {{ .Values.loki.loki.limits_config.retention_period }}){{ else }}disabled{{ end }}
 
 {{- if and .Values.valkey.enabled .Values.apiserver.enabled }}
 {{- if not (has (printf "%s:%v" (include "kubexa.valkeyFullname" .) .Values.valkey.port) .Values.apiserver.config.upstreams.redis.addrs) }}
@@ -71,3 +74,6 @@ pointed at the agentserver:
 
 See the kubexa-apiserver, kubexa-agentserver and kubexa-consumer chart READMEs
 (linked from this chart's README) for the full configuration surface of each.
+
+The bundled Postgres is a single replica with no backup. Before this install
+holds anything you would miss, read docs/ for the backup procedure.

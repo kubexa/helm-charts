@@ -1,8 +1,8 @@
 apiVersion: v2
 name: kubexa
-description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, and the datastores/message bus they need."
+description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, the web UI, and the datastores and message bus they need (Postgres, Valkey, VictoriaMetrics, Loki, NATS), each of which can be turned off and pointed at your own."
 type: application
-version: 0.5.33
+version: 0.6.0
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -296,13 +296,40 @@ dependencies:
     #
     # It also puts `scrape_kinds` on the fleet ingestion contract, which app
     # 0.1.29 renders.
-    version: "0.4.22"
+    #
+    # 0.4.23 changes no template output under this chart's previous values:
+    # it adds secrets.postgresAppPasswordSecret / postgresUsersPasswordSecret,
+    # the {name, key} seam that lets the bundled Postgres's generated password
+    # reach both the migrate initContainer and the server. Before it there was
+    # no way to hand a subchart a password generated at render time, so the
+    # bundled Postgres below could not have existed.
+    version: "0.4.23"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
     version: "2.14.4"
     repository: https://nats-io.github.io/k8s/helm/charts/
     condition: nats.enabled
+  - name: victoria-metrics-single
+    alias: victoriaMetrics
+    # Pinned exactly, never a range. 0.40.1 (appVersion v1.145.0) is the
+    # version running in deployments/vm today; its values file is where the
+    # settings below came from, and its README records what was learned
+    # operating it.
+    version: "0.40.1"
+    repository: https://victoriametrics.github.io/helm-charts/
+    condition: victoriaMetrics.enabled
+  - name: loki
+    # Pinned exactly, never a range. 7.2.0 (appVersion 3.6.11) is the chart
+    # deployments/loki runs; its values file is where the settings below came
+    # from, and its README records what was learned operating it live --
+    # boot, ingest, compaction, retention, deletion.
+    #
+    # No alias: the values block below has to be named "loki" for the
+    # subchart, and this chart's own name is already that.
+    version: "7.2.0"
+    repository: https://grafana.github.io/helm-charts
+    condition: loki.enabled
   - name: kubexa-agentserver
     alias: agentserver
     # 0.2.2 changes no template: it exists only to move appVersion to 0.3.1 so
