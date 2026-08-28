@@ -20,6 +20,30 @@ render_profile() {
   helm template kubexa "$CHART" -f "$PROFILES_DIR/$1.yaml" 2>&1
 }
 
+# Slices ONE document out of a full `helm template` render, keyed on its
+# "# Source: <path>" marker line -- the one Helm writes immediately above
+# every document. Needed because a plain `grep` against the whole render
+# passes on a property that belongs to a completely different object: this
+# chart bundles a Postgres StatefulSet that also sets fsGroup: 70, an
+# apiserver Deployment that also carries KUBEXA_APISERVER_POSTGRES_APP_
+# PASSWORD, and the backup config Secret's own name contains the substring
+# "kubexa-backup" too. An assertion scoped to the source's own document can't
+# pass on any of those.
+#
+# awk, not `yq`: yq is not a declared dependency of this script, and the
+# marker-line approach needs nothing more than line-oriented matching. Reads
+# from stdin via a herestring at the call site, same as every other
+# assertion here, to avoid the SIGPIPE-under-pipefail trap documented above
+# assert_bundled_vm.
+extract_source() {
+  local out=$1 source=$2
+  awk -v marker="# Source: $source" '
+    $0 == marker { grab=1; next }
+    /^# Source:/ { grab=0 }
+    grab { print }
+  ' <<< "$out"
+}
+
 # ── assertions ──────────────────────────────────────────────────────────────
 # Each takes the rendered manifest on stdin as "$1" (a variable, not a pipe,
 # so several assertions can read the same render) and the profile name as $2.
@@ -111,11 +135,16 @@ assert_backup_absent_by_default() {
   case "$profile" in
     backup-s3|backup-filesystem) return 0 ;;
   esac
-  # Keyed on the object's own name, not a bare "kind: CronJob" -- this chart
-  # may grow an unrelated CronJob later, and a bare kind check would then fail
-  # every other profile for a reason that has nothing to do with backup.
-  if grep -q 'name: kubexa-backup' <<< "$out"; then
-    fail "$profile: kubexa-backup objects rendered with backup.enabled=false"
+  # Keyed on the two templates' own "# Source:" markers, not a substring
+  # match against object names -- "name: kubexa-backup" as a bare grep also
+  # matches secretKeyRef.name values like "kubexa-backup-encryption" that a
+  # profile might set even with backup.enabled=false, and a bare
+  # "kind: CronJob" check would fail on any unrelated CronJob this chart
+  # later grows. The source marker is unambiguous: neither template renders
+  # a document at all while backup.enabled=false.
+  if grep -qF '# Source: kubexa/templates/backup-cronjob.yaml' <<< "$out" \
+      || grep -qF '# Source: kubexa/templates/backup-config-secret.yaml' <<< "$out"; then
+    fail "$profile: backup-cronjob.yaml or backup-config-secret.yaml rendered with backup.enabled=false"
   else
     ok "$profile: no backup objects by default"
   fi
@@ -127,43 +156,108 @@ assert_backup_cronjob() {
     backup-s3|backup-filesystem) ;;
     *) return 0 ;;
   esac
-  for needle in "kind: CronJob" "name: kubexa-backup" "KUBEXA_BACKUP_ENCRYPTION_KEY" "sizeLimit: 10Gi" "KUBEXA_APISERVER_POSTGRES_APP_PASSWORD"; do
-    if grep -qF "$needle" <<< "$out"; then
+  # Sliced to the CronJob's OWN document -- see extract_source's comment.
+  # Without this, a grep against the whole render passes even with the
+  # CronJob's name changed to anything (the config Secret's name,
+  # "kubexa-backup-config", still matches "kubexa-backup"), even with
+  # fsGroup deleted from this CronJob (the bundled Postgres StatefulSet
+  # carries its own "fsGroup: 70"), and even with both password env blocks
+  # deleted (the apiserver Deployment carries the same two env var names).
+  # Proven by mutation: see task-12-report.md's fix-round-1 section.
+  local doc
+  doc=$(extract_source "$out" "kubexa/templates/backup-cronjob.yaml")
+  if [ -z "$doc" ]; then
+    fail "$profile: no backup-cronjob.yaml document found in the render"
+    return
+  fi
+  for needle in "kind: CronJob" "KUBEXA_BACKUP_ENCRYPTION_KEY" "sizeLimit: 10Gi" "KUBEXA_APISERVER_POSTGRES_APP_PASSWORD" "KUBEXA_APISERVER_POSTGRES_USERS_PASSWORD"; do
+    if grep -qF "$needle" <<< "$doc"; then
       ok "$profile: $needle"
     else
       fail "$profile: missing $needle"
     fi
   done
+  # Anchored exact match on the object's own metadata.name line, not a bare
+  # substring: "name: kubexa-backup" ALSO matches the secretKeyRef.name refs
+  # this profile's own fixtures point at ("kubexa-backup-encryption",
+  # "kubexa-backup-s3-credentials"), so a substring check here stayed green
+  # even with the CronJob's metadata.name renamed to something-else --
+  # caught by mutation testing, see task-12-report.md's fix-round-1 section.
+  if grep -qE '^  name: kubexa-backup$' <<< "$doc"; then
+    ok "$profile: name: kubexa-backup"
+  else
+    fail "$profile: missing exact metadata.name kubexa-backup"
+  fi
   # fsGroup: 70 is a controller ruling, not optional: the image's /work
   # directory is owned by uid 70, but any volume mounted over it (this
   # CronJob's emptyDir) arrives root-owned, and without fsGroup: 70 the uid-70
   # process cannot write its dump staging area.
-  grep -qF 'fsGroup: 70' <<< "$out" \
+  grep -qF 'fsGroup: 70' <<< "$doc" \
     && ok "$profile: fsGroup: 70" \
     || fail "$profile: missing fsGroup: 70"
   # No password may ever appear as a plain env value -- only via
   # secretKeyRef. A literal password value inlined in a ConfigMap/env would be
   # readable by anyone who can `kubectl get cronjob -o yaml`.
-  if grep -qF 'valueFrom:' <<< "$out" && grep -qF 'secretKeyRef:' <<< "$out"; then
+  if grep -qF 'valueFrom:' <<< "$doc" && grep -qF 'secretKeyRef:' <<< "$doc"; then
     ok "$profile: passwords via secretKeyRef"
   else
     fail "$profile: expected secretKeyRef-backed password env vars"
   fi
   if [ "$profile" = "backup-s3" ]; then
-    grep -qF 'KUBEXA_BACKUP_S3_BUCKET' <<< "$out" \
+    grep -qF 'KUBEXA_BACKUP_S3_BUCKET' <<< "$doc" \
       && ok "$profile: KUBEXA_BACKUP_S3_BUCKET" \
       || fail "$profile: missing KUBEXA_BACKUP_S3_BUCKET"
-    grep -qF 'KUBEXA_BACKUP_FS_PATH' <<< "$out" \
+    grep -qF 'KUBEXA_BACKUP_FS_PATH' <<< "$doc" \
       && fail "$profile: s3 driver should not carry KUBEXA_BACKUP_FS_PATH" \
       || ok "$profile: no filesystem env var on the s3 driver"
   fi
   if [ "$profile" = "backup-filesystem" ]; then
-    grep -qF 'claimName: kubexa-backup-pvc' <<< "$out" \
+    grep -qF 'claimName: kubexa-backup-pvc' <<< "$doc" \
       && ok "$profile: claimName: kubexa-backup-pvc" \
       || fail "$profile: missing claimName: kubexa-backup-pvc"
-    grep -qF 'KUBEXA_BACKUP_S3_BUCKET' <<< "$out" \
+    grep -qF 'KUBEXA_BACKUP_S3_BUCKET' <<< "$doc" \
       && fail "$profile: filesystem driver should not carry S3 env vars" \
       || ok "$profile: no S3 env vars on the filesystem driver"
+  fi
+}
+
+assert_backup_config_secret() {
+  local out=$1 profile=$2
+  case "$profile" in
+    backup-s3|backup-filesystem) ;;
+    *) return 0 ;;
+  esac
+  # Sliced to the config Secret's OWN document for the same reason as
+  # assert_backup_cronjob above -- and specifically proves Critical 1's fix:
+  # the apiserver's own rendered config Secret ALSO carries "ssl_mode:" and
+  # "username:" for its own Postgres upstreams, so an unscoped grep against
+  # the whole render would stay green even if this Secret's template
+  # regressed back to `toYaml`'ing the values-shape (camelCase) keys.
+  local doc
+  doc=$(extract_source "$out" "kubexa/templates/backup-config-secret.yaml")
+  if [ -z "$doc" ]; then
+    fail "$profile: no backup-config-secret.yaml document found in the render"
+    return
+  fi
+  grep -qF 'name: kubexa-backup-config' <<< "$doc" \
+    || { fail "$profile: backup-config-secret.yaml did not render kubexa-backup-config"; return; }
+  for needle in "username:" "ssl_mode:" "max_conns:" "min_conns:"; do
+    grep -qF "$needle" <<< "$doc" \
+      && ok "$profile: config secret carries $needle" \
+      || fail "$profile: config secret missing $needle -- config.Load() reads snake_case keys, not the values-shape ones"
+  done
+  # "user:" (the values-shape key toYaml would have emitted) must NOT appear
+  # as its own YAML key -- "username:" contains the substring "user" but
+  # never "user:" immediately followed by a colon, so a match here can only
+  # be a regression back to the camelCase dump. Comment lines (the template's
+  # own explanation of this exact trap, which necessarily quotes "user")
+  # are excluded first so the check inspects rendered YAML, not prose.
+  local doc_no_comments
+  doc_no_comments=$(grep -v '^\s*#' <<< "$doc" || true)
+  if grep -qF 'user:' <<< "$doc_no_comments"; then
+    fail "$profile: config secret carries a bare \"user:\" key -- config.Load() silently drops it and Username stays empty"
+  else
+    ok "$profile: no bare \"user:\" key"
   fi
 }
 
@@ -362,6 +456,9 @@ half_thrown_needle() {
     half-thrown-postgres-split-app)        echo "differs from consumer.config.postgres.host" ;;
     half-thrown-postgres-split-users)      echo "differs from consumer.config.usersDb.host" ;;
     half-thrown-backup-encryption)         echo "backup.enabled=true requires backup.encryption.existingSecret.name" ;;
+    half-thrown-backup-s3-bucket)          echo "backup.destination.driver=s3 requires backup.destination.s3.bucket" ;;
+    half-thrown-backup-filesystem-claim)   echo "backup.destination.driver=filesystem requires backup.destination.filesystem.existingClaim" ;;
+    half-thrown-backup-driver)             echo "is not supported; use s3 or filesystem" ;;
     *)                echo "" ;;
   esac
 }

@@ -1,0 +1,12 @@
+# backup.enabled=true, driver=s3, encryption Secret set (so that guard is
+# satisfied) but no bucket named. This profile MUST fail to render:
+# templates/guards.yaml refuses an s3 destination with an empty bucket or no
+# credentials Secret named -- the job would otherwise start, mint a valid
+# dump, and fail the upload with nowhere to say so.
+backup:
+  enabled: true
+  encryption:
+    existingSecret:
+      name: kubexa-backup-encryption
+  destination:
+    driver: s3
