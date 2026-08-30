@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, the web UI, and the datastores and message bus they need (Postgres, Valkey, VictoriaMetrics, Loki, NATS), each of which can be turned off and pointed at your own."
 type: application
-version: 0.6.2
+version: 0.6.3
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -311,7 +311,21 @@ dependencies:
     # nothing has to be granted before the pod restarts. No floor against the
     # app chart in either direction: the UI that calls these routes is not
     # built, so installed without it they are simply never called.
-    version: "0.4.24"
+    #
+    # 0.4.25 carries image 0.5.19: the backup's configuration moves out of the
+    # chart and into platform_settings, and the nightly run splits into a
+    # system scope and a data scope. Three migrations run in the migrate
+    # initContainer before the pod starts -- 0084 backup_runs, 0085 the backup
+    # module with backup:read and the Platform menu row, 0086 that row to
+    # 'coming_soon' because kubexa-app has no /platform route yet and every nav
+    # route is derived as `/${moduleKey}`.
+    #
+    # Two routes appear: a BULK PUT on /api/v1/admin/platform/settings, which
+    # is what makes a multi-field credential rotation possible at all, and GET
+    # /api/v1/admin/backup/runs behind backup:read (admin only).
+    #
+    # No floor against the app chart in either direction.
+    version: "0.4.25"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -482,7 +496,10 @@ dependencies:
     # 0.2.18 carries image 0.5.18 and nothing else: the agentserver's own code
     # did not change. It moves so both processes in the namespace run one image
     # version -- all of 0.5.18 is described under apiserver 0.4.24 above.
-    version: "0.2.18"
+    #
+    # 0.2.19 carries image 0.5.19 and nothing else: the agentserver's own code
+    # did not change. All of 0.5.19 is described under apiserver 0.4.25 above.
+    version: "0.2.19"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
@@ -826,6 +843,15 @@ dependencies:
     # shipped and enforced that limit since 0.5.17 (users 0083); until this
     # chart an operator could neither read nor set the ceiling the consumer was
     # already applying. Needs apiserver 0.4.22 or later, which serves the field.
-    version: "0.1.30"
+    #
+    # 0.1.31 carries image 0.2.28, the C3a metrics explorer: an Explore tab on
+    # the cluster screen, a panel builder drawer with a live preview, and one
+    # panel whose whole definition lives in a single `v` search parameter.
+    #
+    # NEEDS apiserver 0.4.24 or later, which serves metrics/names,
+    # metrics/labels and metrics/query_range. Against 0.4.23 those routes do
+    # not exist and every panel fails -- there is no useful degraded mode, so
+    # this chart must not run ahead of the apiserver's.
+    version: "0.1.31"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled

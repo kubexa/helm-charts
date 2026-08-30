@@ -595,7 +595,16 @@ consumer:
 backup:
   enabled: false
   schedule: "0 2 * * *"
-  image: ghcr.io/kubexa/kubexa-backup:0.1.0
+  # 0.2.0 is the first image that splits the run into a system scope and a data
+  # scope and reads enabled/destination/retention/schedule from platform_settings
+  # rather than from this chart. 0.1.0 still runs against a 0.5.19 schema -- it
+  # simply backs up one undivided kubexa_app, all 6.7 GB of it, every night.
+  #
+  # The per-scope VALUES below are not wired yet: retention.keep is still one
+  # number and there is no schedule field per scope. That pass is owed; until it
+  # lands the image falls back to its own defaults (system nightly keep 14, data
+  # weekly keep 4) for anything this chart does not render.
+  image: ghcr.io/kubexa/kubexa-backup:0.2.0
   imagePullPolicy: IfNotPresent
   workDir:
     sizeLimit: 10Gi
