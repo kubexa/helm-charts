@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, the web UI, and the datastores and message bus they need (Postgres, Valkey, VictoriaMetrics, Loki, NATS), each of which can be turned off and pointed at your own."
 type: application
-version: 0.6.3
+version: 0.6.4
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -852,6 +852,15 @@ dependencies:
     # metrics/labels and metrics/query_range. Against 0.4.23 those routes do
     # not exist and every panel fails -- there is no useful degraded mode, so
     # this chart must not run ahead of the apiserver's.
-    version: "0.1.31"
+    #
+    # 0.1.32 carries image 0.2.29, C3b: the Explore tab's single panel becomes a
+    # board of up to twelve, each added, edited, resized and removed on its own,
+    # all sharing one time window and one synchronised cursor. The board still
+    # travels in the same single `v` search parameter, so a link made against
+    # 0.1.31 opens here as a one-panel board.
+    #
+    # Same apiserver floor as 0.1.31 -- 0.4.24 -- and no new route, permission
+    # or migration. This is a frontend-only step.
+    version: "0.1.32"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
