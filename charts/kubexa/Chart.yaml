@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, the web UI, and the datastores and message bus they need (Postgres, Valkey, VictoriaMetrics, Loki, NATS), each of which can be turned off and pointed at your own."
 type: application
-version: 0.6.4
+version: 0.6.5
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -861,6 +861,30 @@ dependencies:
     #
     # Same apiserver floor as 0.1.31 -- 0.4.24 -- and no new route, permission
     # or migration. This is a frontend-only step.
-    version: "0.1.32"
+    #
+    # 0.1.33 carries image 0.2.30, three things at once. The Explore tab gains
+    # eight panel templates and a mandatory resource_type pin -- a panel can no
+    # longer sum node totals into pod totals -- plus four chart shapes beside
+    # the line: area, stacked, bar and stat. The cluster screen fits a phone.
+    # And the app now says when it is working: a pending ring on every mutation
+    # button, an indicator for the boot gap and for route transitions where
+    # both previously showed nothing, and a paginated table that dims its stale
+    # rows instead of sitting silent while the next page loads.
+    #
+    # That last part is a FIX, not a feature. The ring shipped in 0.2.13 and was
+    # never once visible: it was asked for with the native `disabled` attribute,
+    # and the button's own `disabled:opacity-50` faded it to half. The attribute
+    # that showed it also hid it. Anything that reintroduces
+    # `disabled={x.isPending}` on a mutation button brings the bug back.
+    #
+    # Frontend-only, apiserver floor unchanged at 0.4.24. Of what it carries,
+    # only the login button's ring has been seen in a browser -- the boot
+    # splash, the route indicator, the stale-row dimming and every part of the
+    # Explore work are unit-tested and unobserved. 0.2.29 shipped with the same
+    # debt; this release widens it.
+    #
+    # The 0.2.30 image was built and pushed by hand on linux/amd64: kubexa-app's
+    # release workflow has its docker job disabled until 2026-09-01.
+    version: "0.1.33"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
