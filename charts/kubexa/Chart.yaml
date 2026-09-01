@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, the web UI, and the datastores and message bus they need (Postgres, Valkey, VictoriaMetrics, Loki, NATS), each of which can be turned off and pointed at your own."
 type: application
-version: 0.6.5
+version: 0.6.6
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -325,7 +325,29 @@ dependencies:
     # /api/v1/admin/backup/runs behind backup:read (admin only).
     #
     # No floor against the app chart in either direction.
-    version: "0.4.25"
+    #
+    # 0.4.26 changes no template: appVersion moves to 0.5.20, in which removing
+    # a cluster stops being an HTTP request and becomes a background job. The
+    # DELETE route marks the cluster purge_state='removing', enqueues a job and
+    # answers 202; a worker inside the apiserver takes a Postgres advisory lock,
+    # runs the steps in a pinned order and reports the outcome through the
+    # notification centre. Inline, it answered 504 through Cloudflare -- one
+    # step alone measured 58 seconds.
+    #
+    # Users migration 0087 adds kubexa_cluster_purge_jobs and must land before
+    # the pod starts: the worker queries that table within 30 seconds of boot.
+    # The migrate initContainer applies it, so a plain `helm upgrade` of this
+    # umbrella is ordered correctly.
+    #
+    # The worker needs both databases and Redis, and deliberately NOT
+    # notifications -- with those off it still removes clusters, it just tells
+    # nobody. Nothing here exposes its tick interval, so an install runs the 30
+    # second code default.
+    #
+    # App floor: this release pairs with app 0.1.34. An older app on this
+    # apiserver simply shows no badge; a NEWER app on an older apiserver is the
+    # broken direction, because purge_state does not exist in that response.
+    version: "0.4.26"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -499,7 +521,13 @@ dependencies:
     #
     # 0.2.19 carries image 0.5.19 and nothing else: the agentserver's own code
     # did not change. All of 0.5.19 is described under apiserver 0.4.25 above.
-    version: "0.2.19"
+    #
+    # 0.2.20 carries image 0.5.20 and nothing else -- the agentserver's own code
+    # did not change; all of it is described under kubexa-apiserver 0.4.26
+    # above. It moves so both processes in the namespace run one image version.
+    # A cluster being purged is not cut off from ingest: the purge deletes the
+    # cluster row last, so the agent path behaves exactly as before.
+    version: "0.2.20"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
@@ -885,6 +913,18 @@ dependencies:
     #
     # The 0.2.30 image was built and pushed by hand on linux/amd64: kubexa-app's
     # release workflow has its docker job disabled until 2026-09-01.
-    version: "0.1.33"
+    #
+    # 0.1.34 changes no template: appVersion moves to 0.2.31, which makes a
+    # cluster removal visible while it runs -- a "removing" badge on the row and
+    # the detail screen, Remove disabled for the duration, a retry on a cluster
+    # whose purge failed, and the two removal notification types read. The list
+    # polls every 10 seconds while something is 'removing' and never while one
+    # is 'failed', which is terminal.
+    #
+    # Requires apiserver 0.4.26 / image 0.5.20 in the same release: purge_state
+    # does not exist in an older apiserver's response.
+    #
+    # None of it has been opened in a browser.
+    version: "0.1.34"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
