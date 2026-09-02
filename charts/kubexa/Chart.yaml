@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, the web UI, and the datastores and message bus they need (Postgres, Valkey, VictoriaMetrics, Loki, NATS), each of which can be turned off and pointed at your own."
 type: application
-version: 0.6.7
+version: 0.6.8
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -609,7 +609,15 @@ dependencies:
     # above. It moves so both processes in the namespace run one image version.
     # A cluster being purged is not cut off from ingest: the purge deletes the
     # cluster row last, so the agent path behaves exactly as before.
-    version: "0.2.20"
+    #
+    # 0.2.21 carries image 0.5.22 and nothing else: the agentserver's own code
+    # did not change across 0.5.21 or 0.5.22, both of which are described under
+    # kubexa-apiserver above. It moves so both processes in the namespace run
+    # one image version -- 0.4.27's release left it behind on 0.5.20, and a
+    # namespace running two builds of one binary is a mistake this ledger has
+    # recorded twice. It skips 0.5.21 because no image for that tag existed
+    # until 2026-09-02, so no install ever ran it.
+    version: "0.2.21"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
