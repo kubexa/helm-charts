@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, the web UI, and the datastores and message bus they need (Postgres, Valkey, VictoriaMetrics, Loki, NATS), each of which can be turned off and pointed at your own."
 type: application
-version: 0.6.6
+version: 0.6.7
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -347,7 +347,89 @@ dependencies:
     # App floor: this release pairs with app 0.1.34. An older app on this
     # apiserver simply shows no badge; a NEWER app on an older apiserver is the
     # broken direction, because purge_state does not exist in that response.
-    version: "0.4.26"
+    # 0.4.27 carries image 0.5.21: alert rules a person writes, rate limits on
+    # the public auth surface, and the two Explore settings fields the app's
+    # stored board needs.
+    #
+    # An Explore panel can be saved as a rule that watches its own question. A
+    # rule stores the QUESTION -- metric, matchers, aggregation, group-by, rate
+    # window -- and never PromQL, so the query is rebuilt server-side each tick
+    # and a rule can never smuggle in an expression. An evaluator ticks every
+    # 60 seconds under a Postgres advisory lock, so several replicas produce
+    # one evaluator, and runs a per-series state machine: breach for the rule's
+    # duration fires, recovery resolves, and a series that stops reporting
+    # resolves with different wording. A failed read is never a recovery -- a
+    # VictoriaMetrics that is down leaves every firing alert where it was.
+    #
+    # It needs both databases, VictoriaMetrics and cluster authz, and does not
+    # start without them; the boot log names which is missing. Nothing here
+    # exposes alert_rules.eval_interval, so an install runs the 60 second code
+    # default.
+    #
+    # Customer alerts share the alert_state table with vmalert's platform
+    # alerts, separated by tenant_id / cluster_id / rule_id being set or NULL.
+    # Four of this release's fixes are that boundary; the platform reaper used
+    # to resolve still-firing customer alerts.
+    #
+    # Migrations 0078-0080 (app) and 0088 (users) land through the migrate
+    # initContainer, so the umbrella is ordered correctly. 0088 is the one with
+    # a human consequence: it grants cluster:alerts_read and
+    # cluster:alerts_write, and permissions ride the session, so everyone
+    # signed in across this upgrade must sign out and back in before the app's
+    # Alerts tab does anything.
+    #
+    # Login, register and forgot-password are now rate limited by IP and by
+    # account and fail CLOSED -- a Redis outage locks the guessable routes
+    # rather than opening them -- while /auth/refresh fails open, because
+    # failing it closed signs everybody out when Redis blinks.
+    #
+    # App floor: this release pairs with app 0.1.35, and that direction is the
+    # strict one. A newer app on an older apiserver 404s on the rule routes and
+    # shows an Alerts tab that can manage nothing.
+    #
+    # No integration test in the alert-rules workstream has run against a real
+    # Postgres; Docker was unavailable throughout. Verified by unit tests and a
+    # manual run against the dev database.
+    # 0.4.28 carries image 0.5.22: an in-app support channel, and the work that
+    # stops the alert evaluator falling over under load.
+    #
+    # A customer opens a ticket -- subject, category, an optional cluster, a
+    # first message -- and the whole conversation lives in the product; there
+    # is no mail step and no external tracker. Staff holding support:agent see
+    # every ticket in one queue and reply, close and reopen from it. A ticket
+    # carries two clocks: one orders the staff queue, the other the customer's
+    # list, so an internal note can never lift a ticket for a customer with
+    # nothing new to read.
+    #
+    # Users migrations 0089 and 0090 land through the migrate initContainer, so
+    # the umbrella is ordered correctly. Two upgrade consequences, both
+    # deliberate: permissions ride the session, so everyone signed in across
+    # this upgrade sees no Support row until they sign out and back in; and
+    # support:agent is GRANTED TO NO ROLE, so on a fresh upgrade only
+    # superadmin reaches the queue and whoever is meant to answer tickets has
+    # to be granted it explicitly.
+    #
+    # The evaluator now runs a tick's rules four at a time (four and not eight:
+    # each database pool has max_conns 10, and eight would make ordinary HTTP
+    # requests queue behind alert evaluation), resolves notification channel
+    # preferences per tenant instead of per recipient, resolves a cluster's
+    # recipient list once per tick, collapses a burst of more than three series
+    # into one notification carrying a count and three samples, and refuses a
+    # 201st rule in a namespace. Saturation moves from ~1200 rules to ~4800.
+    # None of it is exposed as a chart value.
+    #
+    # Values gained one default: config.ratelimit.routes now carries POST
+    # /api/v1/support/tickets at 5 requests per minute, keyed per TENANT rather
+    # than per caller.
+    #
+    # App floor: this release pairs with app 0.1.36, and that direction is the
+    # strict one. An older app leaves the support routes unreachable and
+    # ignores an aggregate's count; a newer app on an older apiserver is the
+    # broken direction, because the support routes do not exist there at all.
+    #
+    # Nothing in the support workstream has been installed or opened in a
+    # browser.
+    version: "0.4.28"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -925,6 +1007,61 @@ dependencies:
     # does not exist in an older apiserver's response.
     #
     # None of it has been opened in a browser.
-    version: "0.1.34"
+    # 0.1.35 changes no template: appVersion moves to 0.2.32, which persists the
+    # Explore board and lets a panel watch itself.
+    #
+    # A board used to live only in the URL, so leaving the tab emptied the
+    # explorer. It is now stored per cluster on users.settings, next to a
+    # library of starred panels that follows the reader between clusters and
+    # machines. The rule behind it: a shared link is not yours until you edit
+    # it -- arriving on someone else's link shows their board and stores
+    # nothing, and the stored board fills in only when the URL arrives empty.
+    # A login-as session never writes. One consequence reads as a bug and is
+    # not: the browser's Back button lands on the URL you left, which still
+    # carries the old board.
+    #
+    # Any panel can be saved as an alert rule from its header, and the cluster
+    # gains an Alerts tab listing what is firing and what it watches. The
+    # threshold field takes the same base units the panel formats, so typing
+    # 0.7 echoes back 700m.
+    #
+    # The rest is what a live browser session found: panels headed themselves
+    # with the raw metric name, which also became the rule name and therefore
+    # the notification's title in the bell; clicking such a notification
+    # answered "this alert may have expired" because a rule-raised alert was
+    # sent to the platform-only alert route; and a firing row led with three
+    # UUIDs. Panels are now headed from the metric catalogue plus their
+    # group-by, resolved at render so no language is frozen into a shared link.
+    # Notifications already sent keep the name they were sent with.
+    #
+    # Requires apiserver 0.4.27 / image 0.5.21 in the same release: the alert
+    # rule routes do not exist before it, and the Alerts tab's permissions come
+    # from that release's migration -- users must re-authenticate to receive
+    # them.
+    #
+    # Both features were verified in a browser against the live cluster on
+    # 2026-09-02, which is the first release in a while that can say so.
+    # 0.1.36 changes no template: appVersion moves to 0.2.33, which adds both
+    # support screens and teaches the bell to read an aggregated alert.
+    #
+    # /support lists the reader's own tickets and opens a thread that answers
+    # in place; /support-inbox is the whole queue, filterable by status and
+    # category and sorted on the ticket's own last-activity clock rather than
+    # the customer's. Both screens come from the server's menu tree (module
+    # keys support and support-inbox, seeded by users migration 0090), so a row
+    # without its permission renders nothing -- and support:agent is granted to
+    # no role, so the queue is superadmin-only until someone grants it.
+    #
+    # The bell now says how many series an alert covers, and picks the sentence
+    # off the notification's TYPE rather than off the count, so a resolved
+    # burst no longer reads as firing.
+    #
+    # Requires apiserver 0.4.28 / image 0.5.22 for the support screens; the
+    # routes do not exist on anything older. The aggregate copy degrades in the
+    # safe direction -- an older apiserver never sends series_count and every
+    # notification renders as it did before.
+    #
+    # Neither support screen has been opened in a browser.
+    version: "0.1.36"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
