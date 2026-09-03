@@ -436,16 +436,6 @@ apiserver:
         enabled: false
         vapidPublicKey: ""
         subject: ""
-    # Mirrors internal/config/apiserver.go's PlatformConfig.KeyID
-    # (yaml settings_key_id): tags every row platform_settings seals, so a
-    # row sealed under one key is refused rather than silently opened with
-    # another. Left at "default" until this chart actually renders a
-    # platform.settings_key section into the apiserver's own config Secret --
-    # nothing does yet, so today this only reaches the backup CronJob's own
-    # config Secret (templates/backup-config-secret.yaml), which must agree
-    # with whatever the apiserver process resolves this to.
-    platform:
-      keyId: default
   ingress:
     enabled: false
     className: nginx
@@ -481,13 +471,18 @@ apiserver:
     # no safe default to invent at install time: whoever creates it is
     # trusting it with every secret setting (mail credentials, S3 keys) the
     # platform settings screen will ever seal. Empty by default, same as
-    # backup.encryption.existingSecret -- the operator must create it and
-    # point both apiserver.config.platform.keyId and this at it (or leave
-    # both alone, in which case secret settings stay refused rather than
-    # stored in plaintext). Consumed today only by
+    # backup.encryption.existingSecret -- the operator must create it (or
+    # leave this empty, in which case secret settings stay refused rather
+    # than stored in plaintext). Consumed today only by
     # templates/backup-cronjob.yaml (see templates/guards.yaml); nothing
     # yet wires it onto the apiserver pod itself -- see backup-cronjob.yaml's
-    # own comment on KUBEXA_APISERVER_PLATFORM_SETTINGS_KEY.
+    # own comment on KUBEXA_APISERVER_PLATFORM_SETTINGS_KEY. The apiserver's
+    # own settings_key_id (internal/config/apiserver.go's PlatformConfig.
+    # KeyID) has no chart-rendered path either; both sides agree only
+    # because each independently defaults to "default" in Go, not because
+    # of anything this chart wires -- a values.yaml key with no template
+    # consumer would be exactly the same silent-no-op trap this key itself
+    # was corrected away from.
     platformKeySecret:
       name: ""
       key: platform-settings-key

@@ -1,7 +1,8 @@
 # backup.enabled=true, driver=filesystem, encryption Secret and platform key
-# Secret both set (so those guards are satisfied) but no existingClaim named. This profile MUST fail to
-# render: templates/guards.yaml refuses a filesystem destination with no PVC
-# to mount -- without it the CronJob would have nowhere to write the dump.
+# Secret both set (so those guards are satisfied) but no existingClaim
+# named. This profile MUST fail to render: templates/guards.yaml refuses a
+# filesystem destination with no PVC to mount -- without it the CronJob
+# would have nowhere to write the dump.
 backup:
   enabled: true
   encryption:
