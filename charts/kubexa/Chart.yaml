@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, the web UI, and the datastores and message bus they need (Postgres, Valkey, VictoriaMetrics, Loki, NATS), each of which can be turned off and pointed at your own."
 type: application
-version: 0.6.8
+version: 0.6.9
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -1070,6 +1070,16 @@ dependencies:
     # notification renders as it did before.
     #
     # Neither support screen has been opened in a browser.
-    version: "0.1.36"
+    #
+    # 0.1.37 carries image 0.2.34: the support notification becomes readable and
+    # clickable. The bell rendered `support.staff_replied` verbatim and clicking
+    # it went nowhere, because the customer's own screen kept the open
+    # conversation in component state and so had no address for one ticket.
+    # Three render surfaces and the preferences matrix carried the same gap --
+    # support notifications could not even be turned off. A render fix only: no
+    # API change, no floor, and notifications already delivered start working,
+    # because the destination comes from the type rather than a payload field a
+    # stored row would lack.
+    version: "0.1.37"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
