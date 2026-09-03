@@ -329,22 +329,40 @@ night while protecting nothing — the same reasoning behind the
 Loki/VictoriaMetrics/Postgres agreement guards above, applied to a third
 consumer of the same connection.
 
-Turning it on requires two more values, and `templates/guards.yaml` fails the
-render if either is missing:
+Turning it on requires three more values, and `templates/guards.yaml` fails
+the render if any is missing:
 
 - `backup.encryption.existingSecret.name` — a Secret (created outside this
   chart) holding the encryption key at `backup.encryption.existingSecret.key`
   (default key name `encryption-key`). Unconditional: an unencrypted dump
   carries password hashes, sealed secrets and tokens, and this chart will not
   render one.
+- `apiserver.secrets.platformKeySecret.name` — a Secret (created outside this
+  chart, like the one above) holding the apiserver's platform settings key at
+  `apiserver.secrets.platformKeySecret.key` (default key name
+  `platform-settings-key`). The job reads its own configuration —
+  `backup.enabled`/`data.schedule`/`data.keep`/`data.tables` among them, once
+  the install has booted — from `platform_settings`, and the S3 credentials
+  there are sealed with this same key; without it the job cannot open them
+  and, per `cmd/backup`, falls back to `backup.destination.s3.existingSecret`
+  only if that is set directly instead. Nothing in this chart generates this
+  Secret or wires it onto the apiserver pod itself yet — see the comment on
+  `apiserver.secrets.platformKeySecret` in `values.yaml`.
 - `backup.destination.driver` (`s3` or `filesystem`) and that driver's own
   required fields — `bucket` + `existingSecret.name` for `s3`,
   `existingClaim` for `filesystem`.
 
 The rest is left at sensible defaults and rarely needs changing:
 
-- `backup.retention.keep` (default `14`) — how many dump generations the
-  binary keeps at the destination before pruning older ones.
+- `backup.retention.keep` (default `14`) — how many generations of the
+  **system** scope (everything except the data scope below) the binary keeps
+  at the destination before pruning older ones.
+- `backup.data.schedule` / `backup.data.keep` / `backup.data.tables`
+  (defaults `weekly`, `4`, `kubexa_state_events*`) — SEED values only for the
+  **data** scope, the tables that grow without bound. Once the install has
+  booted, these live in `platform_settings` and are edited from the platform
+  settings screen; changing them here afterwards has no effect on an install
+  that already has rows.
 - `backup.workDir.sizeLimit` (default `10Gi`) — the `emptyDir` size limit for
   `/work`, where the dump is staged (compressed and encrypted) before upload.
   Too small for the actual database size and the job fails mid-run rather
@@ -377,6 +395,10 @@ backup:
       region: us-east-1
       existingSecret:
         name: kubexa-backup-s3-credentials
+apiserver:
+  secrets:
+    platformKeySecret:
+      name: kubexa-platform-settings-key
 ```
 
 The CronJob's pod runs as uid/gid 70 (the `postgres` user in the image's

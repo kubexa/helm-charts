@@ -436,6 +436,16 @@ apiserver:
         enabled: false
         vapidPublicKey: ""
         subject: ""
+    # Mirrors internal/config/apiserver.go's PlatformConfig.KeyID
+    # (yaml settings_key_id): tags every row platform_settings seals, so a
+    # row sealed under one key is refused rather than silently opened with
+    # another. Left at "default" until this chart actually renders a
+    # platform.settings_key section into the apiserver's own config Secret --
+    # nothing does yet, so today this only reaches the backup CronJob's own
+    # config Secret (templates/backup-config-secret.yaml), which must agree
+    # with whatever the apiserver process resolves this to.
+    platform:
+      keyId: default
   ingress:
     enabled: false
     className: nginx
@@ -465,6 +475,22 @@ apiserver:
     postgresUsersPasswordSecret:
       name: kubexa-postgres-auth
       key: users-password
+    # By reference, like the two above, but unlike them nothing in this
+    # chart GENERATES this Secret -- the platform settings key is a
+    # 32-byte AES-256 key (base64), and unlike a database password there is
+    # no safe default to invent at install time: whoever creates it is
+    # trusting it with every secret setting (mail credentials, S3 keys) the
+    # platform settings screen will ever seal. Empty by default, same as
+    # backup.encryption.existingSecret -- the operator must create it and
+    # point both apiserver.config.platform.keyId and this at it (or leave
+    # both alone, in which case secret settings stay refused rather than
+    # stored in plaintext). Consumed today only by
+    # templates/backup-cronjob.yaml (see templates/guards.yaml); nothing
+    # yet wires it onto the apiserver pod itself -- see backup-cronjob.yaml's
+    # own comment on KUBEXA_APISERVER_PLATFORM_SETTINGS_KEY.
+    platformKeySecret:
+      name: ""
+      key: platform-settings-key
     # Never rendered into config, only this Secret key -- see
     # config.notifications.webPush above. Empty by default, same as every
     # other credential in this file; it never appears in this repo by value.
@@ -599,17 +625,28 @@ backup:
   # scope and reads enabled/destination/retention/schedule from platform_settings
   # rather than from this chart. 0.1.0 still runs against a 0.5.19 schema -- it
   # simply backs up one undivided kubexa_app, all 6.7 GB of it, every night.
-  #
-  # The per-scope VALUES below are not wired yet: retention.keep is still one
-  # number and there is no schedule field per scope. That pass is owed; until it
-  # lands the image falls back to its own defaults (system nightly keep 14, data
-  # weekly keep 4) for anything this chart does not render.
   image: ghcr.io/kubexa/kubexa-backup:0.2.0
   imagePullPolicy: IfNotPresent
   workDir:
     sizeLimit: 10Gi
+  # The SYSTEM scope: everything except the tables data.tables below carves
+  # out. Left as one number, unlike data.keep, because nothing has asked to
+  # retain it on a different schedule from "every night" -- renaming or
+  # splitting this key would break installs that already set it.
   retention:
     keep: 14
+  # The data scope covers the tables that grow without bound. It is separate
+  # from the nightly system backup because the two have very different sizes:
+  # the system scope is tens of megabytes, this one is gigabytes.
+  #
+  # These are SEED values. Once the install has booted they live in
+  # platform_settings and are edited from the platform settings screen;
+  # changing them here afterwards has no effect on an install that already has
+  # rows.
+  data:
+    schedule: weekly   # off | weekly | monthly | nightly
+    keep: 4
+    tables: "kubexa_state_events*"
   encryption:
     keyId: default
     existingSecret:

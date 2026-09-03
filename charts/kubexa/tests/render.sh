@@ -170,13 +170,26 @@ assert_backup_cronjob() {
     fail "$profile: no backup-cronjob.yaml document found in the render"
     return
   fi
-  for needle in "kind: CronJob" "KUBEXA_BACKUP_ENCRYPTION_KEY" "KUBEXA_BACKUP_ENCRYPTION_KEY_ID" "sizeLimit: 10Gi" "KUBEXA_APISERVER_POSTGRES_APP_PASSWORD" "KUBEXA_APISERVER_POSTGRES_USERS_PASSWORD"; do
+  for needle in "kind: CronJob" "KUBEXA_BACKUP_ENCRYPTION_KEY" "KUBEXA_BACKUP_ENCRYPTION_KEY_ID" "sizeLimit: 10Gi" "KUBEXA_APISERVER_POSTGRES_APP_PASSWORD" "KUBEXA_APISERVER_POSTGRES_USERS_PASSWORD" "KUBEXA_APISERVER_PLATFORM_SETTINGS_KEY" "KUBEXA_BACKUP_ENABLED" "KUBEXA_BACKUP_DATA_SCHEDULE" "KUBEXA_BACKUP_DATA_KEEP" "KUBEXA_BACKUP_DATA_TABLES"; do
     if grep -qF "$needle" <<< "$doc"; then
       ok "$profile: $needle"
     else
       fail "$profile: missing $needle"
     fi
   done
+  # KUBEXA_BACKUP_ENABLED must render as the quoted string "true", not the
+  # bare YAML boolean true: an unquoted boolean env value is rejected by the
+  # API server, and cmd/backup/env.go parses this one back with strconv, not
+  # a YAML decoder, so it must arrive as a string either way. Captured into a
+  # variable (not piped into a second grep) for the same SIGPIPE-under-
+  # pipefail reason documented on assert_bundled_vm above.
+  local enabled_line
+  enabled_line=$(grep -A1 -F 'name: KUBEXA_BACKUP_ENABLED' <<< "$doc")
+  if grep -qF 'value: "true"' <<< "$enabled_line"; then
+    ok "$profile: KUBEXA_BACKUP_ENABLED is quoted"
+  else
+    fail "$profile: KUBEXA_BACKUP_ENABLED did not render as a quoted string -- got: $enabled_line"
+  fi
   # Anchored exact match on the object's own metadata.name line, not a bare
   # substring: "name: kubexa-backup" ALSO matches the secretKeyRef.name refs
   # this profile's own fixtures point at ("kubexa-backup-encryption",
@@ -457,6 +470,7 @@ half_thrown_needle() {
     half-thrown-postgres-split-users)      echo "differs from consumer.config.usersDb.host" ;;
     half-thrown-backup-encryption)         echo "backup.enabled=true requires backup.encryption.existingSecret.name" ;;
     half-thrown-backup-vm-url)             echo "backup.enabled=true requires backup.victoriaMetrics.url" ;;
+    half-thrown-backup-platform-key)       echo "backup.enabled=true requires apiserver.secrets.platformKeySecret.name" ;;
     half-thrown-vm-backup)                 echo "backup.victoriaMetrics.url is still" ;;
     half-thrown-backup-s3-bucket)          echo "backup.destination.driver=s3 requires backup.destination.s3.bucket" ;;
     half-thrown-backup-filesystem-claim)   echo "backup.destination.driver=filesystem requires backup.destination.filesystem.existingClaim" ;;

@@ -1,8 +1,8 @@
 # backup.enabled=true against the filesystem driver: an existingClaim the
-# operator is assumed to have created, plus the encryption Secret
-# backup.enabled requires unconditionally. Proves the CronJob mounts a PVC
-# instead of talking to S3, and that the s3-only env vars/volume are absent
-# on this driver.
+# operator is assumed to have created, plus the encryption Secret and the
+# platform key Secret backup.enabled requires unconditionally. Proves the
+# CronJob mounts a PVC instead of talking to S3, and that the s3-only env
+# vars/volume are absent on this driver.
 backup:
   enabled: true
   encryption:
@@ -14,3 +14,8 @@ backup:
     filesystem:
       existingClaim: kubexa-backup-pvc
       path: /backups
+apiserver:
+  secrets:
+    platformKeySecret:
+      name: kubexa-platform-settings-key
+      key: platform-settings-key
