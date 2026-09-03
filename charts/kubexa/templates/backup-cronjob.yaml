@@ -58,6 +58,30 @@ spec:
                       key: {{ .Values.backup.encryption.existingSecret.key }}
                 - name: KUBEXA_BACKUP_ENCRYPTION_KEY_ID
                   value: {{ .Values.backup.encryption.keyId | quote }}
+                # The runner reads its own configuration from platform_settings,
+                # whose secret rows (the S3 credentials among them) are sealed
+                # with the apiserver's own platform settings key. Without this
+                # env var the pod cannot open them, and per cmd/backup/main.go
+                # falls back to the KUBEXA_BACKUP_S3_* env vars, if any -- see
+                # templates/guards.yaml, which refuses backup.enabled=true with
+                # no key named here at all.
+                - name: KUBEXA_APISERVER_PLATFORM_SETTINGS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.apiserver.secrets.platformKeySecret.name }}
+                      key: {{ .Values.apiserver.secrets.platformKeySecret.key }}
+                # Every one of these is quoted. An unquoted true or 4 reaches
+                # the container as a YAML boolean or integer, which is rejected
+                # for an env value -- the same trap the useSSL comment below
+                # already records.
+                - name: KUBEXA_BACKUP_ENABLED
+                  value: {{ .Values.backup.enabled | quote }}
+                - name: KUBEXA_BACKUP_DATA_SCHEDULE
+                  value: {{ .Values.backup.data.schedule | quote }}
+                - name: KUBEXA_BACKUP_DATA_KEEP
+                  value: {{ .Values.backup.data.keep | quote }}
+                - name: KUBEXA_BACKUP_DATA_TABLES
+                  value: {{ .Values.backup.data.tables | quote }}
                 {{- if eq .Values.backup.destination.driver "s3" }}
                 - name: KUBEXA_BACKUP_PREFIX
                   value: {{ .Values.backup.destination.s3.prefix | quote }}

@@ -1,0 +1,11 @@
+# backup.enabled=true with the encryption Secret named (so that guard is
+# satisfied) but no apiserver.secrets.platformKeySecret.name. This profile
+# MUST fail to render: templates/guards.yaml refuses a backup that cannot
+# open its own sealed settings, since without the platform settings key the
+# job cannot read the S3 credentials platform_settings holds for it (sealed
+# there by the apiserver) and falls back to nothing, per cmd/backup.
+backup:
+  enabled: true
+  encryption:
+    existingSecret:
+      name: kubexa-backup-encryption

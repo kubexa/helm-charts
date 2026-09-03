@@ -1,5 +1,6 @@
-# backup.enabled=true, encryption Secret set (so that guard is satisfied),
-# destination.driver set to something neither s3 nor filesystem supports.
+# backup.enabled=true, encryption Secret and platform key Secret both set
+# (so those guards are satisfied), destination.driver set to something
+# neither s3 nor filesystem supports.
 # This profile MUST fail to render: templates/guards.yaml refuses any driver
 # value the CronJob template's own {{- if eq ... }}/{{- else }} pair does not
 # branch on, rather than silently falling through to the filesystem env vars
@@ -11,3 +12,8 @@ backup:
       name: kubexa-backup-encryption
   destination:
     driver: nfs
+apiserver:
+  secrets:
+    platformKeySecret:
+      name: kubexa-platform-settings-key
+      key: platform-settings-key
