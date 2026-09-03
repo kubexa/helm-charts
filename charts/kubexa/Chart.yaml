@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, the web UI, and the datastores and message bus they need (Postgres, Valkey, VictoriaMetrics, Loki, NATS), each of which can be turned off and pointed at your own."
 type: application
-version: 0.7.1
+version: 0.7.2
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -441,7 +441,20 @@ dependencies:
     # Still no path to KUBEXA_APISERVER_PLATFORM_SETTINGS_KEY in either chart:
     # /platform's non-secret fields work and every secret field answers
     # platform.no_encryption_key.
-    version: "0.4.29"
+    #
+    # 0.4.30 carries image 0.5.24: the Admin Control console's backend. One
+    # `iam` module absorbs the roles and users screens, reverse queries answer
+    # who holds a permission and where a user's access comes from, direct
+    # per-user grants become writable, and an impact preview names who gains
+    # and loses before a write. Every write recomputes the actor's own access
+    # first: an operator revoking their own `role:manage` by any path,
+    # wildcard included, gets 409 and nothing is written.
+    #
+    # Migrations 0096-0099 run in the migrate initContainer. 0099 deletes the
+    # `rbac` and `users` menu rows the console replaces, so a rollback to
+    # 0.5.23 needs 0099 and 0098 rolled back with it or the older app loses
+    # both screens and gains a menu row it cannot route.
+    version: "0.4.30"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -633,7 +646,11 @@ dependencies:
     # 0.2.22 carries image 0.5.23 and changes nothing else. Nothing in that
     # release reaches this process; the bump exists so both processes in the
     # namespace run one image version.
-    version: "0.2.22"
+    #
+    # 0.2.23 carries image 0.5.24 and changes nothing else. Nothing in the
+    # Admin Control release reaches this process; the bump exists so both
+    # processes in the namespace run one image version.
+    version: "0.2.23"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
@@ -1102,6 +1119,15 @@ dependencies:
     # become fully editable rather than threshold-only. This build is the
     # tolerant side of the pair -- given a menu with no `kind` it treats every
     # node as a link -- so a separate subchart install does this one first.
-    version: "0.1.38"
+    #
+    # 0.1.39 carries image 0.2.36: the Admin Control console itself, five tabs
+    # over one screen, with /rbac and /users redirecting into it. A separate
+    # subchart install does this one first, for rollback cost rather than
+    # tolerance: before apiserver migration 0098 runs there is no `iam` row,
+    # so /iam answers the `unavailable` status page and the still-present
+    # /rbac and /users rows dead-end there -- but nothing has migrated, so a
+    # bad app build rolls back with a helm rollback alone. The umbrella
+    # upgrades all three together and the window is the pod rollout.
+    version: "0.1.39"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
