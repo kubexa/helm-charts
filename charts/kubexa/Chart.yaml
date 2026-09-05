@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, the web UI, and the datastores and message bus they need (Postgres, Valkey, VictoriaMetrics, Loki, NATS), each of which can be turned off and pointed at your own."
 type: application
-version: 0.7.2
+version: 0.7.3
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -454,7 +454,15 @@ dependencies:
     # `rbac` and `users` menu rows the console replaces, so a rollback to
     # 0.5.23 needs 0099 and 0098 rolled back with it or the older app loses
     # both screens and gains a menu row it cannot route.
-    version: "0.4.30"
+    #
+    # 0.4.31 carries image 0.5.25 and changes no template. The menu write path
+    # now validates the parent of every row: a group heading has no parent, a
+    # link's parent is the root or a group. Before it, POST
+    # /admin/menu/items/reorder accepted a cycle and the per-user menu tree
+    # recursed over parent_id with no visited set -- a stack overflow on the
+    # next GET /me/menu, for every user, until the row was fixed in SQL.
+    # No migration; a rollback to 0.5.24 loses only the guard.
+    version: "0.4.31"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -650,7 +658,11 @@ dependencies:
     # 0.2.23 carries image 0.5.24 and changes nothing else. Nothing in the
     # Admin Control release reaches this process; the bump exists so both
     # processes in the namespace run one image version.
-    version: "0.2.23"
+    #
+    # 0.2.24 carries image 0.5.25 and changes nothing else. The menu parent
+    # guard is a users-database and HTTP concern; this process serves no menu.
+    # The bump exists so both processes in the namespace run one image version.
+    version: "0.2.24"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
@@ -1128,6 +1140,15 @@ dependencies:
     # /rbac and /users rows dead-end there -- but nothing has migrated, so a
     # bad app build rolls back with a helm rollback alone. The umbrella
     # upgrades all three together and the window is the pod rollout.
-    version: "0.1.39"
+    #
+    # 0.1.40 carries image 0.2.37: the menu catalog screen becomes a tree. It
+    # had been dropping the API's `kind` field, so a group heading and a screen
+    # rendered as the same row, and a parent was settable only at creation --
+    # nothing could be moved into or out of a group from the UI at all.
+    # A separate subchart install does this one first: this build sends only
+    # parents apiserver 0.5.24 already accepted, so it opens no window, while
+    # apiserver-first leaves the old Add dialog offering a plain link as a
+    # parent and taking a 409 it has no wording for. No migration either way.
+    version: "0.1.40"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
