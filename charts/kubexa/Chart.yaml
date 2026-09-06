@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, the web UI, and the datastores and message bus they need (Postgres, Valkey, VictoriaMetrics, Loki, NATS), each of which can be turned off and pointed at your own."
 type: application
-version: 0.7.4
+version: 0.7.5
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -687,7 +687,12 @@ dependencies:
     # 0.2.24 carries image 0.5.25 and changes nothing else. The menu parent
     # guard is a users-database and HTTP concern; this process serves no menu.
     # The bump exists so both processes in the namespace run one image version.
-    version: "0.2.24"
+    #
+    # 0.2.25 carries image 0.5.27 and nothing else: the agentserver's own code
+    # did not change across 0.5.26 or 0.5.27. It moves so both processes in
+    # the namespace run one image version, which 0.7.4 briefly broke by
+    # pinning apiserver 0.4.33 beside agentserver 0.2.24.
+    version: "0.2.25"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
