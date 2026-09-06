@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, the web UI, and the datastores and message bus they need (Postgres, Valkey, VictoriaMetrics, Loki, NATS), each of which can be turned off and pointed at your own."
 type: application
-version: 0.7.6
+version: 0.7.7
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -502,7 +502,34 @@ dependencies:
     # carries an identity fix with no chart surface: a refresh rotation now
     # writes the session row it renews, where last_seen_at had read as the
     # creation time for the row's whole life. No migration.
-    version: "0.4.34"
+    #
+    # 0.4.35 carries image 0.5.29 and adds three optional keys plus one
+    # unconditional render. `apiserver.config.writeTimeoutSeconds` (default 90)
+    # now always renders `apiserver.write_timeout` -- the same value the binary
+    # already compiled in, so the rendered manifest changes and the behaviour
+    # does not. `apiserver.config.aiPlatform.timeoutSeconds` and
+    # `.maxToolIterations` render only when set, and the chart REFUSES one
+    # without the other: the assistant's request budget is derived from both as
+    # timeout * iterations + 15s, and a budget that reaches write_timeout makes
+    # the apiserver mount no assistant at all -- a log warning and a 404 on
+    # /ai/assist, which reads as a missing feature rather than a bad value.
+    # Leave all three at their defaults and none of this applies.
+    #
+    # It exists because a live POST /api/v1/ai/assist came back 504 after
+    # 20.34s with nothing wrong with it: 20s was the compiled per-call provider
+    # timeout and Gemini was still answering. Sampled against the same payload,
+    # generateContent returned anywhere from 1.44s to 34.72s -- a long tail
+    # with no plateau. 0.5.29 moves the compiled defaults to 35s and 2
+    # iterations, an 85s budget under the 90s write timeout, and under the
+    # ~100s a Cloudflare-proxied host holds a connection for.
+    #
+    # Two further fixes with no chart surface: a provider stall no longer
+    # impersonates a blown request budget (it answers ai.provider_timeout / 503
+    # instead of being rewritten to request.timeout / 504 by the timeout
+    # middleware, which is what made the live failure unreadable), and the
+    # assist path now logs one line per provider call and per tool execution
+    # where it logged nothing. No migration.
+    version: "0.4.35"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
