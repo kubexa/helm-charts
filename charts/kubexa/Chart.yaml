@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, the web UI, and the datastores and message bus they need (Postgres, Valkey, VictoriaMetrics, Loki, NATS), each of which can be turned off and pointed at your own."
 type: application
-version: 0.7.3
+version: 0.7.4
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -462,7 +462,32 @@ dependencies:
     # recursed over parent_id with no visited set -- a stack overflow on the
     # next GET /me/menu, for every user, until the row was fixed in SQL.
     # No migration; a rollback to 0.5.24 loses only the guard.
-    version: "0.4.31"
+    #
+    # 0.4.32 carries image 0.5.26 and adds one optional template surface:
+    # `secrets.aiPlatformApiKey`, projected as
+    # KUBEXA_APISERVER_AI_PLATFORM_API_KEY with `optional: true`, so an
+    # install that ships before the key is set renders and boots as 0.5.25
+    # did. The assistant itself ships OFF -- the `ai.enabled` platform
+    # setting defaults false and with no key the service is never
+    # constructed. Migrations 0108-0110 seed the `ai` module and `ai:use`
+    # (admin and user), add ai_usage_events, and add the `refused` outcome.
+    #
+    # The same image carries a second feature its own chart note does not
+    # mention: the platform member console's whole backend. /admin/members
+    # and its detail, sessions, auth-events, activity and four report
+    # endpoints, with migrations 0105 (the directory's sort index), 0106
+    # (backfilling user_tokens.org_id so old token activity is not silently
+    # absent from a member's history) and 0107, which seeds the `members`
+    # module and member:read / member:activity / member:report, granted to
+    # `admin`. It also makes login-as refuse a request that states no
+    # reason -- which is what decides the order below.
+    #
+    # 0.4.33 carries image 0.5.27 and changes no template: migration 0111
+    # seeds the `members` row into the menu catalogue, a child of the
+    # Management heading gated on member:read, pointing at /members in app
+    # 0.2.38. A chart rollback runs no goose down, so the row survives one
+    # and the older binary serves it unchanged.
+    version: "0.4.33"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -1149,6 +1174,25 @@ dependencies:
     # parents apiserver 0.5.24 already accepted, so it opens no window, while
     # apiserver-first leaves the old Add dialog offering a plain link as a
     # parent and taking a 409 it has no wording for. No migration either way.
-    version: "0.1.40"
+    #
+    # 0.1.41 carries image 0.2.38: the platform member console. One member,
+    # eleven tabs -- overview, access, orgs, clusters, support, tokens,
+    # sessions, authEvents, activity, changes, reports -- plus four
+    # estate-wide reports behind the last of them. Five permissions, not
+    # one: member:read opens it, member:activity covers the security record,
+    # audit:read covers changes, member:report covers the reports, and
+    # user:manage covers the two session-revoke controls. A tab whose
+    # permission is missing is disabled with a stated reason rather than
+    # rendered onto a 403.
+    #
+    # A separate subchart install does this one FIRST, and here the reason is
+    # tolerance, not rollback cost: apiserver 0.5.26 already refuses a
+    # login-as that states no reason, and 0.2.37 sends none, so
+    # apiserver-first takes impersonation out on a reachable surface for the
+    # whole window. This side opens no window worth the name -- the members
+    # endpoints 404 until the apiserver lands, but 0111 has not run by then
+    # either, so nothing in the menu points at the screen. The umbrella
+    # upgrades all three together and the window is the pod rollout.
+    version: "0.1.41"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
