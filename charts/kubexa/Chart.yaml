@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, the web UI, and the datastores and message bus they need (Postgres, Valkey, VictoriaMetrics, Loki, NATS), each of which can be turned off and pointed at your own."
 type: application
-version: 0.7.8
+version: 0.7.9
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -548,7 +548,15 @@ dependencies:
     # a pod that comes up before the migration serves correct answers slowly
     # instead of failing. On a large table the build is not instant and it
     # reads the heap, since payload is TOASTed.
-    version: "0.4.36"
+    #
+    # 0.4.37 carries image 0.5.31, which fixes one defect in that route: a
+    # relationship family with no neighbours serialised as `"entries": null`
+    # rather than `[]`, because its entries came from a map lookup and an
+    # absent key is a nil slice in Go. The object page reads `entries.length`
+    # on all five families, so it drew nothing at all for every object whose
+    # neighbours do not fill them -- which is most objects. No migration, no
+    # route, gate or scope change.
+    version: "0.4.37"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -1292,6 +1300,10 @@ dependencies:
     # apiserver the route 404s and the relations panel alone reports the
     # failure, while identity, the timeline and the YAML still render -- so a
     # split rollout degrades rather than breaks.
-    version: "0.1.43"
+    #
+    # 0.1.44 carries image 0.2.41, which normalises that null on this side
+    # too. It is correct against both apiservers, so it is the safer half to
+    # move first and needs no ordering against 0.4.37.
+    version: "0.1.44"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
