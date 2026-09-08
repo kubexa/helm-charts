@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, the web UI, and the datastores and message bus they need (Postgres, Valkey, VictoriaMetrics, Loki, NATS), each of which can be turned off and pointed at your own."
 type: application
-version: 0.7.10
+version: 0.7.11
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -1310,6 +1310,13 @@ dependencies:
     # plans, ingestion, admin control -- renders as cards, and the main menu
     # moved into a bottom bar. It has no ordering against any other component:
     # nothing about the API contract changed, only what the browser draws.
-    version: "0.1.45"
+    #
+    # 0.1.46 carries image 0.2.43, the first finding of the user's own browser
+    # pass over that work: the Logs table view's mobile card rendered a
+    # hardcoded time/level/message, so it was byte-for-byte the list view and
+    # the column picker and saved templates -- which exist only in table view
+    # -- changed nothing on screen. The card now renders the selected columns.
+    # Same absence of ordering as 0.1.45, and for the same reason.
+    version: "0.1.46"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
