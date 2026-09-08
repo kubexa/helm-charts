@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, the web UI, and the datastores and message bus they need (Postgres, Valkey, VictoriaMetrics, Loki, NATS), each of which can be turned off and pointed at your own."
 type: application
-version: 0.7.9
+version: 0.7.10
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -1304,6 +1304,12 @@ dependencies:
     # 0.1.44 carries image 0.2.41, which normalises that null on this side
     # too. It is correct against both apiservers, so it is the safer half to
     # move first and needs no ordering against 0.4.37.
-    version: "0.1.44"
+    #
+    # 0.1.45 carries image 0.2.42, the mobile pass: every wide table below
+    # `md` -- members, a cluster's Activity and Logs, monitoring's Pod table,
+    # plans, ingestion, admin control -- renders as cards, and the main menu
+    # moved into a bottom bar. It has no ordering against any other component:
+    # nothing about the API contract changed, only what the browser draws.
+    version: "0.1.45"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
