@@ -377,6 +377,19 @@ apiserver:
   # Everything under here is the kubexa-apiserver chart's own values surface;
   # see its README. Only the wiring this chart is responsible for is set.
   config:
+    # The address an operator points a kubexa-agent at -- served to the app so
+    # its "connect a cluster" panel can print a helm command that works on this
+    # install. Normally the same host as agentserver.ingress.host below; this
+    # chart cannot copy it for you, because Helm does not template values.yaml,
+    # so templates/NOTES.txt compares the two and warns when they disagree.
+    #
+    # Empty is a real state, not an oversight: the app shows a placeholder
+    # rather than a command. Leave it empty until the agentserver is actually
+    # reachable from outside, and never set it to gateway.kubexa.dev -- that is
+    # the hosted platform's gateway, and an agent pointed there never reaches
+    # this install.
+    agent:
+      gatewayHost: ""
     upstreams:
       redis:
         addrs:

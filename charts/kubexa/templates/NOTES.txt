@@ -33,6 +33,37 @@ apiserver.secrets.redisPasswordSecret.name to "{{ $valkeyAuthSecret }}".
 {{- end }}
 {{- end }}
 
+{{- /*
+The address the app hands an operator who is connecting a cluster. Helm does
+not template values.yaml, so this chart CANNOT derive it from the agentserver
+ingress host the way it derives controlAddr from a fullname -- the two are set
+independently and can only be compared here.
+
+Unset is a legitimate state, not a mistake: the app then shows a placeholder
+instead of a command, which is the honest answer for an install whose operator
+has not decided the address yet. So this warns rather than failing, and it
+warns only once there is an ingress host to compare against.
+*/ -}}
+{{- if and .Values.agentserver.enabled .Values.apiserver.enabled .Values.agentserver.ingress.enabled .Values.agentserver.ingress.host }}
+{{- $gw := .Values.apiserver.config.agent.gatewayHost }}
+{{- if not $gw }}
+
+WARNING: the agentserver is exposed on "{{ .Values.agentserver.ingress.host }}" but
+apiserver.config.agent.gatewayHost is empty. The app's "connect a cluster" panel
+therefore prints a placeholder instead of a working helm command, and everyone
+connecting a cluster has to be told the address out of band. Set
+apiserver.config.agent.gatewayHost to "{{ .Values.agentserver.ingress.host }}".
+{{- else if ne $gw .Values.agentserver.ingress.host }}
+
+WARNING: apiserver.config.agent.gatewayHost ("{{ $gw }}") is not the host the
+agentserver is exposed on ("{{ .Values.agentserver.ingress.host }}"). The app will
+hand every operator a helm command pointing at "{{ $gw }}", and an agent installed
+from it connects to whatever is there -- or to nothing, with no error on this
+side. Set them to the same value unless a proxy in front deliberately answers
+on a different name.
+{{- end }}
+{{- end }}
+
 {{- if and .Values.agentserver.enabled .Values.apiserver.enabled }}
 {{- $expectedControlAddr := printf "%s-internal:50052" (include "kubexa.agentserverFullname" .) }}
 {{- if ne .Values.apiserver.config.upstreams.agentserver.controlAddr $expectedControlAddr }}
