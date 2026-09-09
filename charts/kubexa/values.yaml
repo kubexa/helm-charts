@@ -388,6 +388,12 @@ apiserver:
     # reachable from outside, and never set it to gateway.kubexa.dev -- that is
     # the hosted platform's gateway, and an agent pointed there never reaches
     # this install.
+    #
+    # Needs kubexa-apiserver chart >= 0.4.38. Older subcharts have no `agent`
+    # block, so setting this against one renders NOTHING and the app keeps
+    # showing the placeholder -- with no error, and with the NOTES warning
+    # below satisfied and silent. If you pin an older apiserver chart, expect
+    # this value to do nothing.
     agent:
       gatewayHost: ""
     upstreams:
