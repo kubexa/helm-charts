@@ -2,7 +2,18 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, the web UI, and the datastores and message bus they need (Postgres, Valkey, VictoriaMetrics, Loki, NATS), each of which can be turned off and pointed at your own."
 type: application
-version: 0.7.11
+# 0.7.12 moves kubexa-apiserver to 0.4.38 and adds
+# apiserver.config.agent.gatewayHost: the address an operator points a
+# kubexa-agent at, which the apiserver serves to the app so its "connect a
+# cluster" panel can print a helm command that works on THIS install. Set it
+# to the same host as agentserver.ingress.host; NOTES.txt warns when the two
+# disagree, and warns when the ingress is exposed and the address is unset.
+#
+# Leaving it empty is supported: the app shows a placeholder instead of a
+# command. Do not set it to gateway.kubexa.dev on a self-hosted install --
+# that is the hosted platform's gateway. No migration; rolling back to 0.7.11
+# returns the placeholder.
+version: 0.7.12
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -556,7 +567,12 @@ dependencies:
     # on all five families, so it drew nothing at all for every object whose
     # neighbours do not fill them -- which is most objects. No migration, no
     # route, gate or scope change.
-    version: "0.4.37"
+    #
+    # 0.4.38 adds the optional config.agent block and the endpoint that serves
+    # it, so apiserver.config.agent.gatewayHost below stops being inert. The
+    # block renders only when a host is set, so an install that sets nothing
+    # gets a byte-identical config to 0.4.37's. No migration.
+    version: "0.4.38"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
