@@ -13,7 +13,22 @@ type: application
 # command. Do not set it to gateway.kubexa.dev on a self-hosted install --
 # that is the hosted platform's gateway. No migration; rolling back to 0.7.11
 # returns the placeholder.
-version: 0.7.12
+#
+# 0.7.13 moves kubexa-apiserver to 0.4.39 and kubexa-agentserver to 0.2.27,
+# so both processes in the namespace run image 0.5.32. The agentserver had
+# fallen four releases behind on 0.5.28 -- it was found by rendering this
+# chart and reading the two image lines side by side, which is the only check
+# that looks at both at once. Its own code did not change; this is an
+# alignment. 0.4.38
+# rendered the agent block against image 0.5.31, which has no
+# GET /api/v1/agent-defaults route -- so on 0.7.12 setting
+# apiserver.config.agent.gatewayHost was accepted, rendered, and still left
+# the app showing its placeholder. Nothing reported it: the old binary
+# tolerates the unknown config block and simply 404s the route. 0.7.13 is the
+# first umbrella where setting that value actually reaches the app.
+#
+# No migration. Rolling back to 0.7.12 returns the placeholder.
+version: 0.7.13
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -572,7 +587,7 @@ dependencies:
     # it, so apiserver.config.agent.gatewayHost below stops being inert. The
     # block renders only when a host is set, so an install that sets nothing
     # gets a byte-identical config to 0.4.37's. No migration.
-    version: "0.4.38"
+    version: "0.4.39"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -781,7 +796,7 @@ dependencies:
     # 0.2.26 carries image 0.5.28 and nothing else: the agentserver's own code
     # did not change across it. It moves so both processes in the namespace
     # run one image version.
-    version: "0.2.26"
+    version: "0.2.27"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer

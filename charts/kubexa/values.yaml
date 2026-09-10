@@ -389,11 +389,16 @@ apiserver:
     # the hosted platform's gateway, and an agent pointed there never reaches
     # this install.
     #
-    # Needs kubexa-apiserver chart >= 0.4.38. Older subcharts have no `agent`
-    # block, so setting this against one renders NOTHING and the app keeps
-    # showing the placeholder -- with no error, and with the NOTES warning
-    # below satisfied and silent. If you pin an older apiserver chart, expect
-    # this value to do nothing.
+    # Needs kubexa-apiserver chart >= 0.4.38 to RENDER, and >= 0.4.39 to have
+    # any effect. Two different failures, both silent:
+    #
+    # Below 0.4.38 the subchart has no `agent` block, so setting this renders
+    # NOTHING -- no error, and the NOTES warning below is satisfied and quiet.
+    # At exactly 0.4.38 the block renders but appVersion is 0.5.31, whose
+    # binary has no GET /api/v1/agent-defaults route: it boots fine (the config
+    # loader is non-strict and ignores the block) and answers 404, so the app
+    # still shows the placeholder. 0.4.39 is the first chart whose image
+    # serves the route.
     agent:
       gatewayHost: ""
     upstreams:
