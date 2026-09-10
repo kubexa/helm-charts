@@ -28,7 +28,7 @@ type: application
 # first umbrella where setting that value actually reaches the app.
 #
 # No migration. Rolling back to 0.7.12 returns the placeholder.
-version: 0.7.13
+version: 0.7.14
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -1348,6 +1348,19 @@ dependencies:
     # the column picker and saved templates -- which exist only in table view
     # -- changed nothing on screen. The card now renders the selected columns.
     # Same absence of ordering as 0.1.45, and for the same reason.
-    version: "0.1.46"
+    #
+    # 0.1.47 carries image 0.2.44, two fixes a reader met on one screen --
+    # cluster > Explore > Add panel. A dropdown inside ANY dialog would not
+    # scroll to the mouse: a Sheet is a modal Radix dialog, whose
+    # react-remove-scroll lock cancels every wheel event outside the dialog's
+    # own subtree, and the Combobox portalled its list to <body> -- so the
+    # list painted a scrollbar it refused to move, while the keyboard still
+    # worked. The list now portals into the dialog panel. Separately, the
+    # filter row the builder PINS on a metric carrying `resource_type` had a
+    # live label picker, and changing it bred a fresh pinned row on every
+    # pick; that label is now fixed, like the row's absent remove button. No
+    # ordering against any other component: nothing about the API contract
+    # changed, only what the browser draws.
+    version: "0.1.47"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
