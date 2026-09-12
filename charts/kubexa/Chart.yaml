@@ -58,7 +58,12 @@ type: application
 # both on image 0.5.35. 0.7.16 was never installable: image 0.5.34 never
 # built (migration 0115 collided with a constraint name Postgres had
 # auto-generated in 0078). Same feature, same migrations, fixed 0115.
-version: 0.7.17
+#
+# 0.7.18 moves kubexa-apiserver to 0.4.43 and kubexa-agentserver to 0.2.31,
+# both on image 0.5.36 -- the first image of this line that passes the
+# integration suite (0.7.17's 0.5.35 failed on 0115's Down order and on the
+# audit insert refusing a default-shell console). Install THIS one.
+version: 0.7.18
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -626,7 +631,10 @@ dependencies:
     #
     # 0.4.42 is the same image line with the 0115 fix (0.5.35); 0.4.41's
     # image never existed. Move it together with agentserver 0.2.30.
-    version: "0.4.42"
+    #
+    # 0.4.43 carries image 0.5.36, the first that installs; pairs with
+    # agentserver 0.2.31.
+    version: "0.4.43"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -846,7 +854,9 @@ dependencies:
     # 0.5.34 against an agentserver on 0.2.28 gets Unimplemented on Console.
     #
     # 0.2.30 carries image 0.5.35 (the 0115 fix); pairs with apiserver 0.4.42.
-    version: "0.2.30"
+    #
+    # 0.2.31 carries image 0.5.36; pairs with apiserver 0.4.43.
+    version: "0.2.31"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
