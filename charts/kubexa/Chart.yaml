@@ -53,7 +53,12 @@ type: application
 # console.error (agent_unsupported, disabled, policy_denied, rbac_denied).
 # Rolling back to 0.7.15 leaves the table and the permission in place and
 # the route gone.
-version: 0.7.16
+#
+# 0.7.17 moves kubexa-apiserver to 0.4.42 and kubexa-agentserver to 0.2.30,
+# both on image 0.5.35. 0.7.16 was never installable: image 0.5.34 never
+# built (migration 0115 collided with a constraint name Postgres had
+# auto-generated in 0078). Same feature, same migrations, fixed 0115.
+version: 0.7.17
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -618,7 +623,10 @@ dependencies:
     #
     # 0.4.41 carries image 0.5.34, the first with the pod console WebSocket,
     # migrations 0115 and 0116. Move it together with agentserver 0.2.29.
-    version: "0.4.41"
+    #
+    # 0.4.42 is the same image line with the 0115 fix (0.5.35); 0.4.41's
+    # image never existed. Move it together with agentserver 0.2.30.
+    version: "0.4.42"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -836,7 +844,9 @@ dependencies:
     # 0.2.29 carries image 0.5.34: the agentserver serves the ExecSession and
     # Console streams the pod console runs on. Same rule -- an apiserver on
     # 0.5.34 against an agentserver on 0.2.28 gets Unimplemented on Console.
-    version: "0.2.29"
+    #
+    # 0.2.30 carries image 0.5.35 (the 0115 fix); pairs with apiserver 0.4.42.
+    version: "0.2.30"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
