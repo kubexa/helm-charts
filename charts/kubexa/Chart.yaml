@@ -40,7 +40,20 @@ type: application
 # cluster; an older agent is refused as live_mutate.agent_unsupported, an
 # owner-disabled one as live_mutate.disabled. Rolling back to 0.7.14 leaves
 # the two tables in place and the routes gone; nothing reads them.
-version: 0.7.15
+#
+# 0.7.16 moves kubexa-apiserver to 0.4.41 and kubexa-agentserver to 0.2.29,
+# both on image 0.5.34: the pod console (Phase B). The two MUST move
+# together -- the apiserver's Console stream needs an agentserver on the
+# same binary (an apiserver on 0.5.34 against 0.2.28 gets Unimplemented).
+# Two migrations run at boot (0115 seeds cluster:console for admin and
+# widens the per-cluster surfaces CHECK with "console"; 0116 creates
+# cluster_console_sessions, the audit row reserved before every shell is
+# opened -- never a transcript). Needs agent 0.8.0 with rbac.exec and
+# exec.pod on the target cluster; refusals arrive on the socket as
+# console.error (agent_unsupported, disabled, policy_denied, rbac_denied).
+# Rolling back to 0.7.15 leaves the table and the permission in place and
+# the route gone.
+version: 0.7.16
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -602,7 +615,10 @@ dependencies:
     #
     # 0.4.40 carries image 0.5.33, the first with the live mutation routes,
     # migrations 0113 and 0114. Move it together with agentserver 0.2.28.
-    version: "0.4.40"
+    #
+    # 0.4.41 carries image 0.5.34, the first with the pod console WebSocket,
+    # migrations 0115 and 0116. Move it together with agentserver 0.2.29.
+    version: "0.4.41"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -816,7 +832,11 @@ dependencies:
     # RPC the apiserver on 0.4.40 calls. Not an alignment this time -- an
     # apiserver on 0.5.33 against an agentserver on 0.5.32 gets Unimplemented
     # for every mutation.
-    version: "0.2.28"
+    #
+    # 0.2.29 carries image 0.5.34: the agentserver serves the ExecSession and
+    # Console streams the pod console runs on. Same rule -- an apiserver on
+    # 0.5.34 against an agentserver on 0.2.28 gets Unimplemented on Console.
+    version: "0.2.29"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
