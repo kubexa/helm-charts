@@ -67,6 +67,10 @@ type: application
 # 0.7.19 moves kubexa-app to 0.1.48 (image 0.2.45): the pod console terminal
 # the 0.7.18 apiserver was waiting for. Nothing else moves.
 #
+# 0.7.21 moves kubexa-app to 0.1.49 (image 0.2.46): the pod console's gate,
+# close and theme debts from the 2026-09-13 browser run, and the phone-width
+# content slot. Nothing else moves.
+#
 # 0.7.20 moves kubexa-apiserver to 0.4.45 and kubexa-agentserver to 0.2.33,
 # both on image 0.5.38 (0.4.44 / 0.2.32 / image 0.5.37 never built: a seed
 # test still expected the Topology row active). The console socket no
@@ -74,7 +78,7 @@ type: application
 # the 60 s read deadline through Cloudflare), and the Topology menu row --
 # active since 0042 with no endpoint behind it -- is parked at coming_soon
 # by migration 0117.
-version: 0.7.20
+version: 0.7.21
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -1453,6 +1457,15 @@ dependencies:
     # kubexa-apiserver >= 0.4.43 (image 0.5.36) for the console route and the
     # `console` surface, both already in this umbrella since 0.7.18; without
     # them the action stays hidden (no surface to grant) rather than failing.
-    version: "0.1.48"
+    #
+    # 0.1.49 carries image 0.2.46: the console route's debts from the browser
+    # run (the opened latch is per target and waits for every gate query, a
+    # tombstone is read the way the pod page reads it, a failed cluster or
+    # catalog fetch shows as the error rather than "forbidden", a close the
+    # server never answered no longer hangs Close, xterm opens with the theme
+    # current after the webfont wait) and the cluster layout's content slot
+    # no longer forces a phone to scroll sideways on the logs tab. No ordering
+    # against any other component.
+    version: "0.1.49"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
