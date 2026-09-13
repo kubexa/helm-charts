@@ -67,6 +67,15 @@ type: application
 # 0.7.19 moves kubexa-app to 0.1.48 (image 0.2.45): the pod console terminal
 # the 0.7.18 apiserver was waiting for. Nothing else moves.
 #
+# 0.7.22 moves kubexa-apiserver to 0.4.46 and kubexa-agentserver to 0.2.34,
+# both on image 0.5.39: the node console. A new route behind a new platform
+# permission cluster:node_console (migration 0118, granted to admin) plus
+# LevelAdmin on the console surface with an unrestricted grant; the
+# agentserver dispatches node opens only to agents announcing exec_node
+# (agent chart 0.9.0, rbac.nodeShell + exec.node both off by default).
+# Nothing is reachable until the agent side is switched on. kubexa-app stays
+# at 0.1.49; the launch button ships with the next app bump.
+#
 # 0.7.21 moves kubexa-app to 0.1.49 (image 0.2.46): the pod console's gate,
 # close and theme debts from the 2026-09-13 browser run, and the phone-width
 # content slot. Nothing else moves.
@@ -78,7 +87,7 @@ type: application
 # the 60 s read deadline through Cloudflare), and the Topology menu row --
 # active since 0042 with no endpoint behind it -- is parked at coming_soon
 # by migration 0117.
-version: 0.7.21
+version: 0.7.22
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -658,7 +667,7 @@ dependencies:
     #
     # 0.4.45 carries image 0.5.38, the same code with the test fixed. Pairs
     # with agentserver 0.2.33; no ordering against the app.
-    version: "0.4.45"
+    version: "0.4.46"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -884,7 +893,7 @@ dependencies:
     # 0.2.32 carries image 0.5.37 (never built); pairs with apiserver 0.4.44.
     #
     # 0.2.33 carries image 0.5.38; pairs with apiserver 0.4.45.
-    version: "0.2.33"
+    version: "0.2.34"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
