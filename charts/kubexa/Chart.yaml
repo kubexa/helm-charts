@@ -63,7 +63,10 @@ type: application
 # both on image 0.5.36 -- the first image of this line that passes the
 # integration suite (0.7.17's 0.5.35 failed on 0115's Down order and on the
 # audit insert refusing a default-shell console). Install THIS one.
-version: 0.7.18
+#
+# 0.7.19 moves kubexa-app to 0.1.48 (image 0.2.45): the pod console terminal
+# the 0.7.18 apiserver was waiting for. Nothing else moves.
+version: 0.7.19
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -1421,6 +1424,14 @@ dependencies:
     # pick; that label is now fixed, like the row's absent remove button. No
     # ordering against any other component: nothing about the API contract
     # changed, only what the browser draws.
-    version: "0.1.47"
+    #
+    # 0.1.48 carries image 0.2.45, the pod console: an "Open console" action on
+    # a pod's object page, behind six gates, opening an xterm.js terminal over
+    # the apiserver's Phase B WebSocket, resuming across the 60 s window a
+    # dropped socket allows and surviving a reload inside it. Ordering: needs
+    # kubexa-apiserver >= 0.4.43 (image 0.5.36) for the console route and the
+    # `console` surface, both already in this umbrella since 0.7.18; without
+    # them the action stays hidden (no surface to grant) rather than failing.
+    version: "0.1.48"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
