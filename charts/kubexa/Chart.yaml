@@ -67,6 +67,16 @@ type: application
 # 0.7.19 moves kubexa-app to 0.1.48 (image 0.2.45): the pod console terminal
 # the 0.7.18 apiserver was waiting for. Nothing else moves.
 #
+# 0.7.25 moves kubexa-apiserver to 0.4.49 and kubexa-agentserver to 0.2.37
+# (image 0.5.42) and kubexa-app to 0.1.51 (image 0.2.48). A node console now
+# attaches to the gateway BEFORE its helper Pod is created and pulled (agent
+# chart 0.9.2 -- install it first; a 0.9.1 agent on an uncached image ends as
+# attach_timeout at 15 s), so the 615/620 s server-side node deadlines of
+# 0.7.24 are back to the pod console's 15/20 s and the browser's socket goes
+# live at once with two "kubexa:" status lines while the image pulls. The app
+# renders node-specific sentences for disabled, rbac_denied and
+# attach_timeout on the node console page.
+#
 # 0.7.24 moves kubexa-apiserver to 0.4.48 and kubexa-agentserver to 0.2.36
 # (image 0.5.41): the node console's whole-branch review fixes. A node open
 # waits for the agent's helper Pod on the server side (615/620 s instead of
@@ -104,7 +114,7 @@ type: application
 # the 60 s read deadline through Cloudflare), and the Topology menu row --
 # active since 0042 with no endpoint behind it -- is parked at coming_soon
 # by migration 0117.
-version: 0.7.24
+version: 0.7.25
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -684,7 +694,7 @@ dependencies:
     #
     # 0.4.45 carries image 0.5.38, the same code with the test fixed. Pairs
     # with agentserver 0.2.33; no ordering against the app.
-    version: "0.4.48"
+    version: "0.4.49"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -910,7 +920,7 @@ dependencies:
     # 0.2.32 carries image 0.5.37 (never built); pairs with apiserver 0.4.44.
     #
     # 0.2.33 carries image 0.5.38; pairs with apiserver 0.4.45.
-    version: "0.2.36"
+    version: "0.2.37"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
@@ -1492,6 +1502,6 @@ dependencies:
     # current after the webfont wait) and the cluster layout's content slot
     # no longer forces a phone to scroll sideways on the logs tab. No ordering
     # against any other component.
-    version: "0.1.50"
+    version: "0.1.51"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
