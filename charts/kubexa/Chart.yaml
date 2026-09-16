@@ -75,6 +75,12 @@ type: application
 # live. The app does not move (a browser sees either as a refused upgrade).
 # Agent chart 0.9.3 is independent: config validation only.
 #
+# 0.7.27 moves kubexa-apiserver to 0.4.51 and kubexa-agentserver to 0.2.39
+# (image 0.5.44): node jobs -- cordon, uncordon and drain run on the agent
+# as a job the platform records and polls; migrations 0120/0121. The app
+# does not move yet (its screens follow in 0.7.28). Agent chart 0.10.0 is
+# required on a cluster for the feature; older agents answer 409.
+#
 # 0.7.25 moves kubexa-apiserver to 0.4.49 and kubexa-agentserver to 0.2.37
 # (image 0.5.42) and kubexa-app to 0.1.51 (image 0.2.48). A node console now
 # attaches to the gateway BEFORE its helper Pod is created and pulled (agent
@@ -122,7 +128,7 @@ type: application
 # the 60 s read deadline through Cloudflare), and the Topology menu row --
 # active since 0042 with no endpoint behind it -- is parked at coming_soon
 # by migration 0117.
-version: 0.7.26
+version: 0.7.27
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -705,7 +711,12 @@ dependencies:
     #
     # 0.4.50 carries image 0.5.43: a console resume answers 410 only for the
     # caller's own closed row. Pairs with agentserver 0.2.38.
-    version: "0.4.50"
+    #
+    # 0.4.51 carries image 0.5.44: node jobs (cordon, uncordon, drain) --
+    # six routes, the cluster_node_jobs record (0120) and cluster:node_write
+    # (0121), a 30 s reconciler over open rows. Pairs with agentserver
+    # 0.2.39; the feature needs agent chart 0.10.0 on the cluster.
+    version: "0.4.51"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -934,7 +945,11 @@ dependencies:
     #
     # 0.2.38 carries image 0.5.43 so both processes run one image; nothing
     # on this side changed. Pairs with apiserver 0.4.50.
-    version: "0.2.38"
+    #
+    # 0.2.39 carries image 0.5.44: the node job registry (three control RPCs;
+    # an open job survives the agent's stream ending). Pairs with apiserver
+    # 0.4.51.
+    version: "0.2.39"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
