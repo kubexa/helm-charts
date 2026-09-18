@@ -139,7 +139,16 @@ type: application
 # Operations tab) and 0.1.53's alert thresholds and values printed in the
 # rule's unit, with the org overview naming its creator. No template,
 # migration or ordering change.
-version: 0.7.28
+#
+# 0.7.29 moves kubexa-apiserver to 0.4.54 and kubexa-agentserver to 0.2.42
+# (image 0.5.47): a node job survives an agentserver restart -- the
+# agentserver admits the agent's re-announced job, answers UNAVAILABLE
+# rather than NOT_FOUND until the agents could have reconnected, and the
+# apiserver pushes the token pool the moment its agentserver connection
+# comes back instead of on the next 30 s tick (the restart gap every agent
+# saw as "invalid token" was measured at 44 s). No template, migration or
+# ordering change.
+version: 0.7.29
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -734,7 +743,13 @@ dependencies:
     #
     # 0.4.53 carries image 0.5.46 so both components run one image; the fix
     # (the agentserver's session pick) lives in agentserver 0.2.41.
-    version: "0.4.53"
+    #
+    # 0.4.54 carries image 0.5.47: the token reconciler pushes the pool the
+    # moment its agentserver connection comes back (and wakes an idle one)
+    # instead of only on its 30 s ticker, and its reconnect backoff is
+    # capped at 5 s -- a restarted agentserver rejected every agent for a
+    # measured 44 s. Pairs with agentserver 0.2.42.
+    version: "0.4.54"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -976,7 +991,16 @@ dependencies:
     # recent connect rather than a stream whose client vanished; a node-job
     # cancel reaches every session of the cluster. Pairs with apiserver
     # 0.4.53 and agent chart 0.10.3.
-    version: "0.2.41"
+    #
+    # 0.2.42 carries image 0.5.47: a node job survives a restart of the
+    # agentserver. Its registry is memory; a rollout restart mid-drain
+    # dropped the agent's re-announced snapshot as an unknown job and
+    # answered NOT_FOUND, so the apiserver recorded a real drain as lost.
+    # An unknown job is now admitted under the session's own tenant and
+    # cluster (at most 32 held per session), a held job answers only its
+    # own tenant's sessions, and an absent job answers UNAVAILABLE until
+    # the token pool has been seeded for 30 s. Pairs with apiserver 0.4.54.
+    version: "0.2.42"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
