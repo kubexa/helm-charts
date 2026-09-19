@@ -468,6 +468,9 @@ store" check to catch.
 {{- if not .Values.apiserver.secrets.platformKeySecret.name }}
 {{- fail "backup.enabled=true requires apiserver.secrets.platformKeySecret.name: the backup job cannot open the sealed S3 credentials in platform_settings without the platform settings key, and per cmd/backup falls back to KUBEXA_BACKUP_S3_ACCESS_KEY_ID/KUBEXA_BACKUP_S3_SECRET_ACCESS_KEY only when those are set directly instead." }}
 {{- end }}
+{{- if .Values.apiserver.config.platform.settingsKeyId }}
+{{- fail "backup.enabled=true does not allow apiserver.config.platform.settingsKeyId: the backup job seals and opens platform_settings rows under the key id \"default\" only (cmd/backup has no config path for the id), so an apiserver sealing under any other id writes S3 credentials the backup job cannot read. Leave it empty on an install with backups." }}
+{{- end }}
 {{- if eq .Values.backup.destination.driver "s3" }}
 {{- if or (not .Values.backup.destination.s3.bucket) (not .Values.backup.destination.s3.existingSecret.name) }}
 {{- fail "backup.destination.driver=s3 requires backup.destination.s3.bucket and backup.destination.s3.existingSecret.name." }}

@@ -234,6 +234,47 @@ assert_backup_cronjob() {
   fi
 }
 
+# The apiserver pod must read the platform settings key from the SAME Secret
+# the backup CronJob reads: the process that seals a row and the job that
+# must unseal it cannot disagree on the key. Until apiserver chart 0.4.55
+# the umbrella's apiserver.secrets.platformKeySecret fed only the CronJob and
+# the apiserver pod had no key at all -- every secret field on /platform
+# failed on every install, backup or not. Scoped to the apiserver
+# Deployment's own document (extract_source), because the CronJob document
+# carries the identical env name and would satisfy a whole-render grep.
+#
+# The block itself is carved with awk, not a fixed `grep -A5` window: the
+# rendered secretKeyRef carries comment lines above it, so a fixed window is
+# fragile, and a plain window can't tell which container's env list the
+# match landed in. Scoped to the "apiserver" container's own env list and
+# cut at the next env entry.
+assert_platform_key_reaches_apiserver() {
+  local out=$1 profile=$2
+  [ "$profile" = "backup-s3" ] || return 0
+  local doc
+  doc=$(extract_source "$out" "kubexa/charts/apiserver/templates/deployment.yaml")
+  if [ -z "$doc" ]; then
+    fail "$profile: no apiserver deployment.yaml document found in the render"
+    return
+  fi
+  local block
+  block=$(awk '
+    /^        - name: apiserver$/ { c = 1 }
+    c && /name: KUBEXA_APISERVER_PLATFORM_SETTINGS_KEY/ { p = 1; print; next }
+    p && /^            - name: / { exit }
+    p { print }
+  ' <<< "$doc")
+  if [ -z "$block" ]; then
+    fail "$profile: the apiserver Deployment renders no KUBEXA_APISERVER_PLATFORM_SETTINGS_KEY -- apiserver chart < 0.4.55?"
+    return
+  fi
+  grep -qF 'name: kubexa-platform-settings-key' <<< "$block" \
+    || { fail "$profile: apiserver reads the platform key from somewhere other than apiserver.secrets.platformKeySecret.name"; return; }
+  grep -qF 'optional: true' <<< "$block" \
+    && { fail "$profile: a referenced platform key Secret was rendered optional on the apiserver"; return; }
+  ok "$profile: platform key reaches the apiserver Deployment by reference"
+}
+
 assert_backup_config_secret() {
   local out=$1 profile=$2
   case "$profile" in
@@ -471,6 +512,7 @@ half_thrown_needle() {
     half-thrown-backup-encryption)         echo "backup.enabled=true requires backup.encryption.existingSecret.name" ;;
     half-thrown-backup-vm-url)             echo "backup.enabled=true requires backup.victoriaMetrics.url" ;;
     half-thrown-backup-platform-key)       echo "backup.enabled=true requires apiserver.secrets.platformKeySecret.name" ;;
+    half-thrown-backup-key-id)             echo "backup.enabled=true does not allow apiserver.config.platform.settingsKeyId" ;;
     half-thrown-vm-backup)                 echo "backup.victoriaMetrics.url is still" ;;
     half-thrown-backup-s3-bucket)          echo "backup.destination.driver=s3 requires backup.destination.s3.bucket" ;;
     half-thrown-backup-filesystem-claim)   echo "backup.destination.driver=filesystem requires backup.destination.filesystem.existingClaim" ;;

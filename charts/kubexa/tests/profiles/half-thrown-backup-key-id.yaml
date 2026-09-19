@@ -1,0 +1,28 @@
+# backup-s3 plus a non-empty apiserver.config.platform.settingsKeyId. This
+# profile MUST fail to render: templates/guards.yaml refuses backup.enabled
+# with a non-"default" key id, since cmd/backup always seals/opens under
+# "default" and could never read what an apiserver sealed under "k2".
+backup:
+  enabled: true
+  encryption:
+    existingSecret:
+      name: kubexa-backup-encryption
+      key: encryption-key
+  destination:
+    driver: s3
+    s3:
+      endpoint: s3.example.com
+      region: us-east-1
+      bucket: kubexa-backups
+      existingSecret:
+        name: kubexa-backup-s3-credentials
+        accessKeyIdKey: access-key-id
+        secretAccessKeyKey: secret-access-key
+apiserver:
+  secrets:
+    platformKeySecret:
+      name: kubexa-platform-settings-key
+      key: platform-settings-key
+  config:
+    platform:
+      settingsKeyId: k2

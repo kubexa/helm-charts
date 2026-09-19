@@ -65,6 +65,7 @@ spec:
                 # falls back to the KUBEXA_BACKUP_S3_* env vars, if any -- see
                 # templates/guards.yaml, which refuses backup.enabled=true with
                 # no key named here at all.
+                # The apiserver Deployment reads the same Secret (apiserver chart 0.4.55+).
                 - name: KUBEXA_APISERVER_PLATFORM_SETTINGS_KEY
                   valueFrom:
                     secretKeyRef:
