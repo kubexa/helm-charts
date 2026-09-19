@@ -460,6 +460,14 @@ apiserver:
         enabled: false
         vapidPublicKey: ""
         subject: ""
+    platform:
+      # Not secret. Set only at first install, before any platform_settings
+      # row is sealed with secrets.platformKeySecret above -- changing it
+      # afterwards fails every settings read with platform.foreign_key_id,
+      # since rotation is not implemented. Refused outright with
+      # backup.enabled=true: the backup job always seals/opens under
+      # "default" (cmd/backup has no config path for the id).
+      settingsKeyId: ""
   ingress:
     enabled: false
     className: nginx
@@ -497,16 +505,18 @@ apiserver:
     # platform settings screen will ever seal. Empty by default, same as
     # backup.encryption.existingSecret -- the operator must create it (or
     # leave this empty, in which case secret settings stay refused rather
-    # than stored in plaintext). Consumed today only by
-    # templates/backup-cronjob.yaml (see templates/guards.yaml); nothing
-    # yet wires it onto the apiserver pod itself -- see backup-cronjob.yaml's
-    # own comment on KUBEXA_APISERVER_PLATFORM_SETTINGS_KEY. The apiserver's
-    # own settings_key_id (internal/config/apiserver.go's PlatformConfig.
-    # KeyID) has no chart-rendered path either; both sides agree only
-    # because each independently defaults to "default" in Go, not because
-    # of anything this chart wires -- a values.yaml key with no template
-    # consumer would be exactly the same silent-no-op trap this key itself
-    # was corrected away from.
+    # than stored in plaintext).
+    #
+    # Consumed by BOTH the apiserver Deployment (apiserver chart >= 0.4.55,
+    # by reference, never optional) and templates/backup-cronjob.yaml: the
+    # process that seals a row and the job that unseals it read one Secret.
+    # apiserver.config.platform.settingsKeyId (rendered as
+    # platform.settings_key_id) tags every row this key seals; it defaults
+    # to "default" and is a first-install-only setting -- changing it after
+    # any row has been sealed fails every settings read with
+    # platform.foreign_key_id, since rotation is not implemented. The
+    # backup job never reads this id and always seals/opens under
+    # "default", so it is refused outright when backup.enabled is true.
     platformKeySecret:
       name: ""
       key: platform-settings-key

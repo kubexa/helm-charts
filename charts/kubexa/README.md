@@ -345,8 +345,10 @@ the render if any is missing:
   the install has booted — from `platform_settings`, and the S3 credentials
   there are sealed with this same key; without it the job cannot open them
   and, per `cmd/backup`, falls back to `backup.destination.s3.existingSecret`
-  only if that is set directly instead. Nothing in this chart generates this
-  Secret or wires it onto the apiserver pod itself yet — see the comment on
+  only if that is set directly instead. The apiserver Deployment reads the
+  SAME Secret (apiserver chart >= 0.4.55, by reference, never optional): the
+  process that seals a row and the job that unseals it agree on one key.
+  Nothing in this chart generates this Secret — see the comment on
   `apiserver.secrets.platformKeySecret` in `values.yaml`.
 - `backup.destination.driver` (`s3` or `filesystem`) and that driver's own
   required fields — `bucket` + `existingSecret.name` for `s3`,

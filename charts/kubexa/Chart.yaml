@@ -148,7 +148,24 @@ type: application
 # comes back instead of on the next 30 s tick (the restart gap every agent
 # saw as "invalid token" was measured at 44 s). No template, migration or
 # ordering change.
-version: 0.7.29
+#
+# 0.7.30 moves kubexa-apiserver to 0.4.55 (image unchanged, 0.5.47): the
+# platform settings key finally reaches the apiserver pod. This umbrella
+# has passed apiserver.secrets.platformKeySecret since 0.7.0, but only the
+# backup CronJob consumed it; the apiserver Deployment rendered no
+# KUBEXA_APISERVER_PLATFORM_SETTINGS_KEY, so every secret field on
+# /platform answered platform.no_encryption_key on every install. Now the
+# same Secret serves the process that seals and the job that unseals. No
+# value rename, no migration, no ordering change: set
+# apiserver.secrets.platformKeySecret.name (or add platform-settings-key to
+# apiserver.secrets.existingSecret) and upgrade.
+#
+# Also adds a guard: backup.enabled=true now refuses a non-empty
+# apiserver.config.platform.settingsKeyId, because cmd/backup has no config
+# path for the key id and always seals/opens platform_settings rows under
+# "default" -- an apiserver sealing under any other id would write S3
+# credentials the backup job can never read.
+version: 0.7.30
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -749,7 +766,13 @@ dependencies:
     # instead of only on its 30 s ticker, and its reconnect backoff is
     # capped at 5 s -- a restarted agentserver rejected every agent for a
     # measured 44 s. Pairs with agentserver 0.2.42.
-    version: "0.4.54"
+    #
+    # 0.4.55 carries image 0.5.47 unchanged: the Deployment gains
+    # KUBEXA_APISERVER_PLATFORM_SETTINGS_KEY, by reference to
+    # secrets.platformKeySecret and never optional, and config.platform
+    # renders a settingsKeyId. No image change; the umbrella wires both new
+    # surfaces at 0.7.30.
+    version: "0.4.55"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
