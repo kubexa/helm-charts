@@ -165,7 +165,10 @@ type: application
 # path for the key id and always seals/opens platform_settings rows under
 # "default" -- an apiserver sealing under any other id would write S3
 # credentials the backup job can never read.
-version: 0.7.30
+# 0.7.31 — saved dashboards (C4): apiserver 0.4.56 (image 0.5.48), app 0.1.54
+# (image 0.2.51). The migrate job applies app 0122 and users 0123; no new
+# values.
+version: 0.7.31
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -772,7 +775,13 @@ dependencies:
     # secrets.platformKeySecret and never optional, and config.platform
     # renders a settingsKeyId. No image change; the umbrella wires both new
     # surfaces at 0.7.30.
-    version: "0.4.55"
+    #
+    # 0.4.56 carries image 0.5.48: saved dashboards (C4). New table
+    # cluster_dashboards (app 0122) and cluster:dashboards_read/_write/_share
+    # (users 0123); six routes under /me/clusters/{t}/{c}/dashboards. A panel
+    # is stored as its question and compiled under the VIEWER's scope on
+    # every query, so a shared dashboard never widens anyone's access.
+    version: "0.4.56"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -1614,6 +1623,11 @@ dependencies:
     # rule's unit, the edit field labelled with it, the org overview naming
     # its creator. Reads two fields apiserver 0.4.52 adds; against an older
     # apiserver the numbers render raw and the creator line shows the date.
-    version: "0.1.53"
+    #
+    # 0.1.54 carries image 0.2.51: the Explore tab opens, saves, shares,
+    # renames and deletes named dashboards; ready-made dashboards; a panel
+    # whose metric the cluster never scraped says so. Needs apiserver 0.4.56;
+    # against an older one the menu's dashboard groups say "Could not load".
+    version: "0.1.54"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
