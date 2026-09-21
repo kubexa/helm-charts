@@ -174,7 +174,13 @@ type: application
 # new values — the delivery worker runs on code defaults (5 s, enabled) and
 # the SSRF guard is the platform setting alerts.webhook_allow_private
 # (default false, changed on the /platform screen, not in the chart).
-version: 0.7.32
+# 0.7.33 — alert screens (C5b/2): apiserver 0.4.58 (image 0.5.50), app 0.1.56
+# (image 0.2.53). The migrate job applies users 0126 (alerts module,
+# alerts:read_own, the /alerts menu row); no new values. The two images MUST
+# move together: 0.5.50's notifications link to /alerts/{fp}, which app
+# 0.2.52 routes to the operator page — never install the apiserver chart
+# alone ahead of the app.
+version: 0.7.33
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -787,7 +793,7 @@ dependencies:
     # (users 0123); six routes under /me/clusters/{t}/{c}/dashboards. A panel
     # is stored as its question and compiled under the VIEWER's scope on
     # every query, so a shared dashboard never widens anyone's access.
-    version: "0.4.57"
+    version: "0.4.58"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -1634,6 +1640,6 @@ dependencies:
     # renames and deletes named dashboards; ready-made dashboards; a panel
     # whose metric the cluster never scraped says so. Needs apiserver 0.4.56;
     # against an older one the menu's dashboard groups say "Could not load".
-    version: "0.1.55"
+    version: "0.1.56"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
