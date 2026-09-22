@@ -180,7 +180,11 @@ type: application
 # move together: 0.5.50's notifications link to /alerts/{fp}, which app
 # 0.2.52 routes to the operator page — never install the apiserver chart
 # alone ahead of the app.
-version: 0.7.33
+# 0.7.34 — Slack notification preview: apiserver 0.4.59 (image 0.5.51). A
+# Slack alert message now carries a plain-text summary, so a desktop or
+# mobile notification reads the rule, cluster and value instead of "[no
+# preview content]". No migration, no values, no app change.
+version: 0.7.34
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -793,7 +797,12 @@ dependencies:
     # (users 0123); six routes under /me/clusters/{t}/{c}/dashboards. A panel
     # is stored as its question and compiled under the VIEWER's scope on
     # every query, so a shared dashboard never widens anyone's access.
-    version: "0.4.58"
+    #
+    # 0.4.59 carries image 0.5.51: a Slack alert message carries a
+    # plain-text summary (top-level `text` plus the attachment `fallback`)
+    # so notifications no longer read "[no preview content]". Renderer
+    # only -- no schema, values or RBAC change, and no app counterpart.
+    version: "0.4.59"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
