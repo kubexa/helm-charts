@@ -184,7 +184,14 @@ type: application
 # Slack alert message now carries a plain-text summary, so a desktop or
 # mobile notification reads the rule, cluster and value instead of "[no
 # preview content]". No migration, no values, no app change.
-version: 0.7.34
+# 0.7.35 — the mutation UI (E1): apiserver 0.4.60 (image 0.5.52) and app
+# 0.1.57 (image 0.2.54). The cluster object page gets Restart, Scale, Edit
+# and Delete, and the Operations tab a "Changes" log over the new
+# GET /live/mutations. Migration 0127 adds one index; no new permission and
+# no values change. The two move together: the app's Changes section and the
+# apiserver's log route are one feature, and an app ahead of the apiserver
+# reports a failed section.
+version: 0.7.35
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -802,7 +809,14 @@ dependencies:
     # plain-text summary (top-level `text` plus the attachment `fallback`)
     # so notifications no longer read "[no preview content]". Renderer
     # only -- no schema, values or RBAC change, and no app counterpart.
-    version: "0.4.59"
+    #
+    # 0.4.60 carries image 0.5.52: GET /live/mutations, the first reader of
+    # cluster_mutations -- the table that has recorded every change the
+    # platform made inside a customer's cluster since 0.5.33. Migration 0127
+    # adds its keyset index. Gated on cluster:resource_live_read, not
+    # resource_write, and the response carries no request body. Needs app
+    # 0.1.57 for the screens; an older app never calls the route.
+    version: "0.4.60"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -1649,6 +1663,15 @@ dependencies:
     # renames and deletes named dashboards; ready-made dashboards; a panel
     # whose metric the cluster never scraped says so. Needs apiserver 0.4.56;
     # against an older one the menu's dashboard groups say "Could not load".
-    version: "0.1.56"
+    #
+    # 0.1.57 carries image 0.2.54: the object page's first WRITE controls --
+    # Restart, Scale, Edit (live read, replace with that read's
+    # resourceVersion) and Delete (uid as the precondition) -- plus the
+    # Operations tab's Changes section. Secrets are raised to admin plus an
+    # unrestricted grant, and a Secret the agent redacts cannot be edited at
+    # all: saving would erase its values. Needs apiserver 0.4.60 for the log
+    # route; against an older one the Changes section reports a failure and
+    # the four controls keep working.
+    version: "0.1.57"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
