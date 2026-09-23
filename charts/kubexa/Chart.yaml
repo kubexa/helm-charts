@@ -196,7 +196,13 @@ type: application
 # alerts.webhook_allow_private gets help copy saying what it actually does:
 # it never blocks creating a channel, and only limits where a webhook may
 # point. Copy and layout; no schema, values or route change.
-version: 0.7.36
+# 0.7.37 — app 0.1.59 (image 0.2.56) only, no apiserver change. A dialog
+# holding a select closed itself: while the dropdown was open, Radix gave
+# the panel pointer-events:none and a press over the dialog hit-tested
+# through to the overlay, which reads as a press outside. Found in the
+# delete dialog during the E1 acceptance run; fixed in the dialog and sheet
+# primitives, so the four other dialogs with a select are fixed with it.
+version: 0.7.37
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -1682,6 +1688,10 @@ dependencies:
     # layout below md (the table put its actions behind a horizontal scroll
     # on a phone), and the webhook-guard setting's help copy no longer reads
     # as though it gates channel creation. No apiserver counterpart.
-    version: "0.1.58"
+    #
+    # 0.1.59 carries image 0.2.56: a press over a dialog no longer closes it
+    # while a select inside it is open. Primitive-level (dialog.tsx and
+    # sheet.tsx); no apiserver counterpart.
+    version: "0.1.59"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
