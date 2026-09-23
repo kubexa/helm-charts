@@ -202,7 +202,15 @@ type: application
 # through to the overlay, which reads as a press outside. Found in the
 # delete dialog during the E1 acceptance run; fixed in the dialog and sheet
 # primitives, so the four other dialogs with a select are fixed with it.
-version: 0.7.37
+# 0.7.38 — app 0.1.60 (image 0.2.57) only, no apiserver change. Scaling a
+# workload left the object page, and the scale dialog's pre-filled count,
+# showing the old number of replicas until a reload: the page reads the
+# stored projection (watch-fed, ~2s behind) but the invalidation fired in
+# the response's own tick and cached the pre-mutation row as fresh. The
+# detail is now refetched on a bounded schedule until it carries the
+# resourceVersion the mutation returned. Second defect from the E1
+# acceptance run.
+version: 0.7.38
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -1692,6 +1700,13 @@ dependencies:
     # 0.1.59 carries image 0.2.56: a press over a dialog no longer closes it
     # while a select inside it is open. Primitive-level (dialog.tsx and
     # sheet.tsx); no apiserver counterpart.
-    version: "0.1.59"
+    #
+    # 0.1.60 carries image 0.2.57: after a scale the object page and the scale
+    # dialog kept the old replica count until a reload. The page reads the
+    # stored projection, which is watch-fed and lands ~2s after the write,
+    # while the invalidation fired immediately; the detail is now refetched on
+    # a bounded schedule until it carries the mutation's resourceVersion. No
+    # apiserver counterpart.
+    version: "0.1.60"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
