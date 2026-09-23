@@ -191,7 +191,12 @@ type: application
 # no values change. The two move together: the app's Changes section and the
 # apiserver's log route are one feature, and an app ahead of the apiserver
 # reports a failed section.
-version: 0.7.35
+# 0.7.36 — app 0.1.58 (image 0.2.55) only, no apiserver change. The alert
+# Channels list gets a card layout on phones, and the platform setting
+# alerts.webhook_allow_private gets help copy saying what it actually does:
+# it never blocks creating a channel, and only limits where a webhook may
+# point. Copy and layout; no schema, values or route change.
+version: 0.7.36
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -1672,6 +1677,11 @@ dependencies:
     # all: saving would erase its values. Needs apiserver 0.4.60 for the log
     # route; against an older one the Changes section reports a failure and
     # the four controls keep working.
-    version: "0.1.57"
+    #
+    # 0.1.58 carries image 0.2.55: the alert Channels list gains a card
+    # layout below md (the table put its actions behind a horizontal scroll
+    # on a phone), and the webhook-guard setting's help copy no longer reads
+    # as though it gates channel creation. No apiserver counterpart.
+    version: "0.1.58"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
