@@ -210,7 +210,31 @@ type: application
 # detail is now refetched on a bounded schedule until it carries the
 # resourceVersion the mutation returned. Second defect from the E1
 # acceptance run.
-version: 0.7.38
+# 0.7.39 — apiserver 0.4.61 and agentserver 0.2.43, both on image 0.5.53:
+# the backend half of platform-owned agent configuration. The two MUST move
+# together: the apiserver calls two new control RPCs (ReplaceAgentConfigs,
+# RestartAgent) that an agentserver on 0.5.52 does not serve, and gets
+# Unimplemented. No values change, no new secret, and nothing in this chart's
+# own templates. Three migrations run in the apiserver's migrate
+# initContainer before its pod starts -- 0128 (the table plus the RBAC seed
+# for cluster:agent_config_read and _write), 0129 (the foreign key the
+# cluster-purge cascade was missing) and 0130 (six nullable columns for what
+# the agent echoes back). 0128 landing before the pod boots is the one
+# ordering that matters: role grants load once at boot, so a pod started
+# first 403s both new routes.
+#
+# There is no screen yet -- kubexa-app gets the editor in a later release, so
+# after this upgrade the routes answer and nobody drives them. Agents need to
+# be on 0.11.0 or newer to apply a managed block or to report their redaction
+# flags at all; the apexcrawl install runs agent chart 0.10.3, which reports
+# nothing, and the API says "not reported" rather than guessing a value.
+#
+# Rolling back to 0.7.38 is safe on the data side (the older binaries read
+# none of the three migrations) but it does NOT release config an agent
+# already holds: nil means "unchanged" on that channel, so an agent keeps
+# enforcing its last snapshot until it restarts. Nothing has been pushed on
+# this install yet, so today there is nothing to release.
+version: 0.7.39
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -835,7 +859,16 @@ dependencies:
     # adds its keyset index. Gated on cluster:resource_live_read, not
     # resource_write, and the response carries no request body. Needs app
     # 0.1.57 for the screens; an older app never calls the route.
-    version: "0.4.60"
+    #
+    # 0.4.61 carries image 0.5.53: the platform can own a cluster agent's
+    # configuration -- five blocks (the collection settings and the read
+    # gates), four routes under
+    # /api/v1/me/clusters/{tenant}/{cluster}/agent-config, two new
+    # permissions, and three migrations (0128 table + RBAC seed, 0129 the
+    # purge cascade's missing FK, 0130 the echo columns). Must move with
+    # agentserver 0.2.43: this binary calls ReplaceAgentConfigs and
+    # RestartAgent. No app counterpart yet.
+    version: "0.4.61"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -1086,7 +1119,16 @@ dependencies:
     # cluster (at most 32 held per session), a held job answers only its
     # own tenant's sessions, and an absent job answers UNAVAILABLE until
     # the token pool has been seeded for 30 s. Pairs with apiserver 0.4.54.
-    version: "0.2.42"
+    #
+    # 0.2.43 carries image 0.5.53: it serves the two new control RPCs, holds
+    # the config snapshot in memory beside the session registry (still one
+    # replica), and pushes a changed block to the live session. Handshake and
+    # push are deliberately asymmetric -- a cluster with no stored blocks gets
+    # a non-nil EMPTY set on handshake so a released config actually reaches a
+    # reconnecting agent, while the pusher keeps nil-means-skip so a partial
+    # read cannot wipe a cluster's config. Cluster purge now resyncs and
+    # restarts the agent after the row is gone. Pairs with apiserver 0.4.61.
+    version: "0.2.43"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
