@@ -250,7 +250,14 @@ type: application
 # vmalert.enabled: true set is not meaningful: 0.7.39 has no vmalert key at
 # all, so it renders no vmalert objects and the standalone release (if not
 # yet removed) is the only one still running.
-version: 0.8.0
+#
+# 0.8.1 moves kubexa-app to 0.1.61 (image 0.2.58): the E3 agent settings
+# editor screen. kubexa-apiserver stays at 0.4.61 (image 0.5.53) -- the
+# routes have been live since 0.7.39, this release only adds the screen
+# that drives them. No migration, no template change to any other subchart.
+# Rolling back to 0.8.0 removes the screen; the routes and any block an
+# operator already saved through it stay exactly as they are.
+version: 0.8.1
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -1782,6 +1789,18 @@ dependencies:
     # while the invalidation fired immediately; the detail is now refetched on
     # a bounded schedule until it carries the mutation's resourceVersion. No
     # apiserver counterpart.
-    version: "0.1.60"
+    #
+    # 0.1.61 carries image 0.2.58: the E3 agent settings editor -- a new
+    # "Agent settings" cluster tab over the platform's five managed agent
+    # config blocks (collect.logs, collect.state, collect.metrics, query,
+    # buffer), gated on cluster:agent_config_read/_write plus the same
+    # per-cluster admin+unrestricted check every other data tab uses. Needs
+    # apiserver 0.4.61 (this umbrella's kubexa-apiserver pin already carries
+    # it) for the four agent-config routes, and an agent at kubexa-agent
+    # 0.11.0+ to actually apply a saved block or report its redaction/
+    # applied-revision echo -- against an older agent the tab still renders
+    # but every block stays "pending" forever. No migration, no apiserver
+    # bump needed for this release.
+    version: "0.1.61"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
