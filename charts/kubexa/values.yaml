@@ -370,6 +370,691 @@ loki:
   rbac:
     namespaced: true
 
+# ─── bundled alerting ───────────────────────────────────────────────────────
+#
+# vmalert, evaluating the platform's own alert rules against the bundled
+# VictoriaMetrics and posting firing/resolved state straight to the
+# apiserver's /internal/alertmanager route (no Alertmanager in this path --
+# see deployments/vmalert/README.md for why, and for every rule's own
+# reasoning: the counter pattern, the absence-fallback trap, and the
+# zero-vs-absent gauge guard on LokiRetentionStalled).
+#
+# A separate release in deployments/vmalert until 2026-09-27, for three
+# reasons stated on the apiserver dependency's 0.4.6 comment above: it was
+# optional, it needed a datasource this chart did not own, and it mounted a
+# Secret key by name. All three are void now that this chart bundles
+# victoria-metrics-single above and every component lives in one namespace.
+#
+# Default OFF, unlike victoriaMetrics/loki/nats: it needs
+# apiserver.secrets.internalToken set, which this chart never generates (see
+# that value's own comment -- holding the token IS the authorization).
+# Turning this on without it mounts a Secret with no internal-token key in
+# it and vmalert authenticates against nothing. Turn it on and the apiserver
+# route it posts to is mounted for free the moment that value is set.
+#
+# The rules below are copied verbatim from deployments/vmalert's
+# values-apexcrawl.yaml as it stood the day this was bundled -- same
+# datasource/notifier URLs, same Secret name, same 19 rules across 8
+# groups. That file now carries only vmalert.enabled: true.
+vmalert:
+  enabled: false
+  server:
+    # The umbrella release's own VictoriaMetrics, in this same namespace. Since
+    # the rebuild, deployments/kubexa/values-apexcrawl.yaml no longer states this
+    # address at all -- it is the umbrella's default and the apiserver, the
+    # consumer and this file all inherit it. If it ever moves, it moves in the
+    # chart, and all three follow.
+    #
+    # The address alone is not enough, and this is the part that is easy to miss:
+    # VM must be SCRAPING, which is off in the umbrella's defaults and turned on
+    # explicitly in deployments/kubexa/values-apexcrawl.yaml. With scraping off,
+    # VM holds only what the consumer remote-writes and every rule below except
+    # the heartbeat evaluates against an empty series set -- while
+    # KubexaTargetAbsent fires CRITICAL because nothing is there at all.
+    datasource:
+      url: http://kubexa-victoriametrics:8428
+
+    # `for`-state persistence across restarts. remoteWrite publishes each active
+    # alert's start time as the ALERTS_FOR_STATE series; remoteRead reads it back
+    # on start. Without them, a pod replacement restarts every `for` timer from
+    # zero, so KubexaVolumeFilling needs a further 15 uninterrupted minutes to
+    # fire after any restart -- an alert delayed by the act of editing an
+    # unrelated rule.
+    #
+    # These do NOT fix the stuck-firing problem in the README's run log, and it
+    # is worth being exact about why, because the flag names suggest otherwise.
+    # Restore only back-dates an alert the CURRENT evaluation has already
+    # re-created: it walks the rule's in-memory pending alerts and moves their
+    # start time backwards. An alert whose condition cleared while vmalert was
+    # down is re-created by nothing, so there is nothing to restore and no
+    # resolve is ever sent. Measured on 2026-08-15 with these very settings: a
+    # firing rule flipped off across a restart produced no resolve at `for: 0m`
+    # and none at `for: 1m`, while a rule that still matched logged
+    # `restored to state at ...` and skipped its wait. Restore works; it just
+    # answers a different question.
+    #
+    # The apiserver-side fix (reaping alert_state rows that stop being
+    # re-asserted) is therefore still required and still unwritten.
+    #
+    # Both point at the same VictoriaMetrics the rules are evaluated against.
+    # vmalert appends the paths itself (/api/v1/write and /api/v1/query), which
+    # is why these stop at the host, exactly like datasource.url above.
+    remoteWrite:
+      url: http://kubexa-victoriametrics:8428
+    remoteRead:
+      url: http://kubexa-victoriametrics:8428
+
+    notifier:
+      # vmalert appends /api/v2/alerts to this base, which is why the path stops
+      # at /internal/alertmanager. The apiserver route is registered at the full
+      # path and is NOT an Alertmanager: it implements this one endpoint and
+      # nothing else of that API.
+      url: http://kubexa-apiserver.kubexa.svc:8080/internal/alertmanager
+      # bearerTokenFile, never bearerToken. The chart renders bearerToken into a
+      # container argument, which puts the credential in the Pod spec where
+      # anyone with `get pods` can read it. The file form keeps it in the Secret
+      # it came from.
+      bearerTokenFile: /etc/kubexa/internal-token/internal-token
+
+    extraVolumes:
+      - name: internal-token
+        secret:
+          secretName: kubexa-apiserver-keys
+          # Only the one key is projected. The Secret also holds the VAPID
+          # private key, both Postgres passwords and the auth symmetric key, and
+          # mounting it whole would put every one of them in this pod's
+          # filesystem for no reason.
+          items:
+            - key: internal-token
+              path: internal-token
+
+    extraVolumeMounts:
+      - name: internal-token
+        mountPath: /etc/kubexa/internal-token
+        readOnly: true
+
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        memory: 256Mi
+
+    # This note is about the Loki group specifically -- it predates this branch
+    # and originally sat directly above those rules, back when they were the
+    # only rules here. The config block below now holds 19 rules across 7
+    # groups, with Loki last rather than first, so the note stays attached to
+    # the block instead of drifting down with the group it actually describes.
+    #
+    # The two alerts deployments/loki/README.md listed as required when Loki
+    # was installed -- the volume rule moved out to the platform group as
+    # KubexaVolumeFilling. The two that remain here (LokiRetentionStalled,
+    # LokiDiscardingLines) read two metrics between them, not four -- "all four"
+    # was true only while the volume rule still lived in this group. They could
+    # not be evaluated until VictoriaMetrics scraping went on (2026-08-10); both
+    # metrics they read now exist.
+    #
+    # Every `for:` below is chosen from the shape of its own condition. None of
+    # them is a default.
+    config:
+      alerts:
+        groups:
+          # The heartbeat is not an alert. It is the signal that lets the
+          # apiserver tell "vmalert is alive and no longer asserting that alert"
+          # apart from "vmalert is gone" -- a distinction it cannot otherwise
+          # make, because when nothing is firing vmalert posts nothing at all.
+          #
+          # The apiserver records its row and never notifies it (the name is
+          # matched against apiserver.alerts.heartbeat_alert_name), then measures
+          # every other firing alert's staleness against this row's freshness
+          # rather than against the clock. That is what stops a vmalert outage
+          # from resolving every firing alert at once and telling everyone the
+          # platform recovered.
+          #
+          # DELETING THIS RULE DOES NOT JUST REMOVE A HEARTBEAT. It silently
+          # disables stale-alert reaping altogether -- the row the apiserver
+          # reads is never written, its reap predicate matches nothing, and
+          # alert_state rows go back to sticking at 'firing' forever, which is
+          # the exact failure this whole mechanism exists to fix. Renaming it
+          # here without renaming heartbeat_alert_name has the same effect.
+          - name: pipeline
+            rules:
+              - alert: KubexaAlertPipelineHeartbeat
+                expr: vector(1) > 0
+                for: 0m
+                labels:
+                  severity: none
+                  component: kubexa
+                annotations:
+                  summary: "Alert pipeline heartbeat"
+                  description: "Always firing. Its freshness is how the apiserver knows vmalert is still posting."
+
+          # ------------------------------------------------------------------
+          # platform — the cluster underneath Kubexa.
+          #
+          # These rules are deliberately NOT scoped to the kubexa namespaces.
+          # apexcrawl is a small shared cluster: a full volume or a dead
+          # node-level target degrades everything on it, and seven PVCs is not
+          # a volume of noise. `redis-data-redis-master-0` belongs to another
+          # application and is watched on purpose. If the cluster grows or
+          # ownership separates, the selectors here are the one place to narrow.
+          # ------------------------------------------------------------------
+          - name: platform
+            rules:
+              # up == 0 means the target IS discovered and its /metrics call
+              # failed. It cannot see a pod that was deleted, evicted or never
+              # scheduled: no target, no series, nothing to compare against.
+              # That case is KubexaTargetAbsent below. The two are separate
+              # rules because they are separate failures with the same symptom.
+              - alert: KubexaTargetDown
+                expr: up == 0
+                for: 5m
+                labels:
+                  severity: critical
+                  component: platform
+                annotations:
+                  summary: "Scrape target {{ $labels.job }} is not responding"
+                  description: "{{ $labels.instance }} has failed every scrape for 5 minutes. Its metrics are stale, so every other rule reading them is blind for as long as this lasts."
+
+              # absent() is the only construct that turns an expectation into an
+              # alert, and it requires the expectation to be written down --
+              # which is why these four services are named literally. Each
+              # absent() call carries its own selector's equality matchers as
+              # labels, so this one rule produces four distinguishable alerts
+              # rather than one ambiguous row (verified live 2026-08-16).
+              #
+              # ADDING A SERVICE TO THE PLATFORM MEANS ADDING A LINE HERE.
+              # Nothing else notices that a deployment stopped existing.
+              - alert: KubexaTargetAbsent
+                expr: |
+                  absent(up{namespace="kubexa", app_kubernetes_io_name="apiserver"})
+                    or absent(up{namespace="kubexa", app_kubernetes_io_name="agentserver"})
+                    or absent(up{namespace="kubexa", app_kubernetes_io_name="consumer"})
+                    or absent(up{namespace="kubexa", app_kubernetes_io_name="kubexa-loki"})
+                for: 10m
+                labels:
+                  severity: critical
+                  component: platform
+                annotations:
+                  summary: "{{ $labels.app_kubernetes_io_name }} has no scrape target at all"
+                  description: "Nothing in namespace {{ $labels.namespace }} answers as {{ $labels.app_kubernetes_io_name }}. The pod is gone rather than unhealthy -- deleted, evicted, or never scheduled."
+
+              # Replaces LokiVolumeFilling, which ran this same expression
+              # against one PVC. Keeping both would report Loki twice.
+              #
+              # 15m because a volume dips across the line transiently while a
+              # compactor works; a single scrape crossing 75% is not yet news.
+              - alert: KubexaVolumeFilling
+                expr: |
+                  kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes < 0.25
+                for: 15m
+                labels:
+                  severity: warning
+                  component: platform
+                annotations:
+                  summary: "{{ $labels.persistentvolumeclaim }} is over 75% full"
+                  description: "Only {{ $value | humanizePercentage }} of {{ $labels.persistentvolumeclaim }} in namespace {{ $labels.namespace }} is free. Writes to it stop when it fills."
+
+              # A volume with free bytes and no free inodes is full in every way
+              # that matters, and the byte rule above cannot see it. 15% rather
+              # than 25%: inode exhaustion arrives abruptly, so a wider margin
+              # would only add noise without adding warning.
+              - alert: KubexaVolumeInodesFilling
+                expr: |
+                  kubelet_volume_stats_inodes_free / kubelet_volume_stats_inodes < 0.15
+                for: 15m
+                labels:
+                  severity: warning
+                  component: platform
+                annotations:
+                  summary: "{{ $labels.persistentvolumeclaim }} is running out of inodes"
+                  description: "Only {{ $value | humanizePercentage }} of the inodes on {{ $labels.persistentvolumeclaim }} in namespace {{ $labels.namespace }} are free. Writes fail with ENOSPC while free bytes remain."
+
+              # The primary certificate signal: it reports renewal FAILING
+              # rather than its eventual consequence.
+              #
+              # NOTE the namespace labels, they are the easiest mistake in this
+              # file. VictoriaMetrics adds its own `namespace` (where the
+              # cert-manager POD runs, always "cert-manager") and moves the
+              # target's colliding label to `exported_namespace` (where the
+              # CERTIFICATE lives). Templating $labels.namespace here would
+              # name cert-manager on every single alert.
+              #
+              # condition!="True", NOT condition="False". cert-manager emits
+              # three series per certificate -- False, True and Unknown -- and
+              # a certificate wedged at Unknown (a common shape for a stuck ACME
+              # challenge) is exactly the renewal failure this rule exists to
+              # catch. Matching only "False" makes that case invisible.
+              - alert: KubexaCertificateNotReady
+                expr: certmanager_certificate_ready_status{condition!="True"} == 1
+                for: 30m
+                labels:
+                  severity: critical
+                  component: platform
+                annotations:
+                  summary: "Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} is not ready"
+                  description: "cert-manager has reported this certificate not ready for 30 minutes. Renewal is failing; expiry follows if nothing changes."
+
+              # 14 days, NOT 30. cert-manager renews Let's Encrypt certificates
+              # at roughly 30 days before expiry, so a 30-day threshold fires on
+              # every healthy certificate in the cluster -- the nearest one sat
+              # at 29.7 days on 2026-08-16. 14 days means renewal has been
+              # failing for a fortnight, which is a fact rather than a schedule.
+              #
+              # This is the backstop for the failure mode that leaves Ready
+              # true. KubexaCertificateNotReady above is the primary.
+              - alert: KubexaCertificateExpiringSoon
+                expr: |
+                  (certmanager_certificate_expiration_timestamp_seconds - time()) / 86400 < 14
+                for: 1h
+                labels:
+                  severity: warning
+                  component: platform
+                annotations:
+                  summary: "Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} expires in under 14 days"
+                  description: "{{ $value | printf \"%.1f\" }} days left. cert-manager should have renewed this around 30 days out, so renewal is not working."
+
+          - name: apiserver
+            rules:
+              # increase() over 15m with for: 0m, NOT rate() with a matching
+              # for:. A `for:` at least as long as the lookback window can never
+              # be satisfied by a burst shorter than the window -- the condition
+              # goes true and false again before the timer completes, and the
+              # rule looks correct while never firing. The patience belongs in
+              # the window. This is the pattern for every counter rule below.
+              - alert: KubexaApiserverErrors
+                expr: |
+                  sum by (route) (increase(kubexa_apiserver_http_requests_total{status=~"5.."}[15m])) > 0
+                for: 0m
+                labels:
+                  severity: warning
+                  component: apiserver
+                annotations:
+                  summary: "apiserver is returning 5xx on {{ $labels.route }}"
+                  description: "{{ $value | humanize }} server errors in the last 15 minutes on {{ $labels.route }}."
+
+          - name: gateway
+            rules:
+              # The gauge is a state set: three series, exactly one of which is
+              # 1. Reading the connected one directly is clearer than summing
+              # the others and says the same thing.
+              - alert: KubexaGatewayNatsDisconnected
+                expr: kubexa_gateway_nats_connection_state{state="connected"} == 0
+                for: 2m
+                labels:
+                  severity: critical
+                  component: gateway
+                annotations:
+                  summary: "Gateway is not connected to NATS"
+                  description: "The agentserver has been disconnected from NATS for 2 minutes. Telemetry it accepts cannot be published, so it buffers until the buffer gives out."
+
+              - alert: KubexaGatewayBufferDropping
+                expr: increase(kubexa_gateway_buffer_dropped_total[30m]) > 0
+                for: 0m
+                labels:
+                  severity: warning
+                  component: gateway
+                annotations:
+                  summary: "Gateway buffer dropped telemetry"
+                  description: "{{ $value | humanize }} items dropped from the gateway buffer in the last 30 minutes. They were accepted from an agent and then discarded; nothing retries them."
+
+              # Separate from the buffer rule on purpose: the buffer overflowing
+              # and a single message being too large to carry call for different
+              # responses. Same reasoning that made LokiDiscardingLines group by
+              # reason rather than sum into one number that says only "something
+              # is being dropped".
+              - alert: KubexaGatewayOversizeDropping
+                expr: increase(kubexa_gateway_oversize_dropped_total[30m]) > 0
+                for: 0m
+                labels:
+                  severity: warning
+                  component: gateway
+                annotations:
+                  summary: "Gateway dropped oversize telemetry"
+                  description: "{{ $value | humanize }} items exceeded the gateway's size limit in the last 30 minutes and were discarded rather than truncated."
+
+              # This series does not exist yet: a labelled counter is not
+              # exported until its first increment. The rule therefore matches
+              # nothing today and costs nothing, and starts working on the day
+              # the first handshake is rejected -- the only day it matters.
+              #
+              # Because there is no series, a typo here CANNOT be caught by
+              # querying VictoriaMetrics. The name was checked against
+              # internal/agentserver/metrics/metrics.go instead.
+              - alert: KubexaHandshakeRejections
+                expr: |
+                  sum by (reason) (increase(kubexa_gateway_handshake_rejected_total[30m])) > 0
+                for: 0m
+                labels:
+                  severity: warning
+                  component: gateway
+                annotations:
+                  summary: "Agent handshakes are being rejected ({{ $labels.reason }})"
+                  description: "{{ $value | humanize }} handshakes rejected for reason {{ $labels.reason }} in the last 30 minutes. Those agents are not connected and are sending nothing at all."
+
+          # Both counters are agent-reported figures relayed through the
+          # agentserver's heartbeat handler, so they describe loss that happened
+          # AT the agent, before anything reached the platform. tenant_id and
+          # cluster_id survive that relay and are the only way to say whose.
+          - name: agent
+            rules:
+              - alert: KubexaAgentDropsTooOld
+                expr: |
+                  sum by (tenant_id, cluster_id) (increase(kubexa_gateway_agent_dropped_too_old_total[30m])) > 0
+                for: 0m
+                labels:
+                  severity: warning
+                  component: agent
+                annotations:
+                  summary: "Agent on cluster {{ $labels.cluster_id }} is dropping records as too old"
+                  description: "{{ $value | humanize }} records dropped past max_sample_age in the last 30 minutes. Either the agent is running behind or the cluster's clock is off; both lose data that is not retried."
+
+              # Separate from too_old, because the answers differ: this one is
+              # the agent's own per-stream ingest limit, and raising it is a
+              # config decision rather than a repair.
+              - alert: KubexaAgentRateLimited
+                expr: |
+                  sum by (tenant_id, cluster_id) (increase(kubexa_gateway_agent_dropped_rate_limited_total[30m])) > 0
+                for: 0m
+                labels:
+                  severity: warning
+                  component: agent
+                annotations:
+                  summary: "Agent on cluster {{ $labels.cluster_id }} is hitting its per-stream rate limit"
+                  description: "{{ $value | humanize }} log lines dropped against the agent's per-stream limit in the last 30 minutes. Those lines are gone; raising the limit does not recover them."
+
+          - name: consumer
+            rules:
+              # Every rule in this group groups by every identity label its
+              # source counter carries, not just the labels needed to describe
+              # the failure. An aggregate that hides which tenant is affected
+              # cannot produce a second notification when a second tenant starts
+              # failing: only state changes notify, so while the alert is
+              # already firing for one tenant, a second tenant's drops just move
+              # an already-nonzero sum and nothing changes state. Dropping an
+              # identity label at aggregation time silently drops the tenants
+              # behind it from ever being told apart.
+              #
+              # class is on the error counter and not on the drop counter, and
+              # the grouping follows the data rather than being made symmetric:
+              # a permanent failure and a retryable one are different news.
+              - alert: KubexaConsumerWriteErrors
+                expr: |
+                  sum by (destination, class, reason, tenant_namespace) (increase(kubexa_consumer_write_errors_total[30m])) > 0
+                for: 0m
+                labels:
+                  severity: warning
+                  component: consumer
+                annotations:
+                  summary: "Consumer writes to {{ $labels.destination }} are failing ({{ $labels.class }}/{{ $labels.reason }})"
+                  description: "{{ $value | humanize }} failed write attempts in the last 30 minutes, namespace {{ $labels.tenant_namespace }}. A permanent class is not retried."
+
+              # This rule has a live precedent. In the 24 hours before it was
+              # written, 55 records were discarded to Loki as bad_request with
+              # nobody told -- found only by querying the instance by hand while
+              # designing this catalog. That is the condition it exists for.
+              #
+              # Grouped by tenant_id/cluster_id as well as destination/reason --
+              # see the group comment above. This counter carries cluster_id;
+              # kubexa_consumer_write_errors_total above does not, so inventing
+              # one there would be wrong.
+              - alert: KubexaConsumerDropping
+                expr: |
+                  sum by (destination, reason, tenant_id, cluster_id) (increase(kubexa_consumer_messages_dropped_total[30m])) > 0
+                for: 0m
+                labels:
+                  severity: warning
+                  component: consumer
+                annotations:
+                  summary: "Consumer is discarding messages to {{ $labels.destination }} ({{ $labels.reason }})"
+                  description: "{{ $value | humanize }} telemetry messages abandoned without being written in the last 30 minutes, cluster {{ $labels.cluster_id }}. They are not retried and cannot be recovered."
+
+              # No series until the first cooldown, like the handshake rule --
+              # name verified against kubexa-consumer/internal/metrics rather
+              # than against the instance. The label is tenant_namespace and not
+              # namespace, deliberately, so VictoriaMetrics does not rename it.
+              #
+              # max_over_time(...[30m]) == 1 with for: 0m, NOT the gauge read
+              # directly with for: 5m. That would need the gauge to read 1 on
+              # five consecutive 60s evaluations, and it cannot: in
+              # kubexa-consumer, defaultCooldownMax caps a cooldown window at
+              # 60s (internal/config/config.go), and expireCooldownsLocked
+              # writes the gauge back to false the instant a window runs out
+              # (internal/writer/buffer/batcher.go), with a new window only
+              # opening on the next batch that hits a rate limit. Under genuine
+              # sustained throttling the gauge cycles 1 -> 0 -> 1 at least once
+              # a minute, so any scrape landing in a gap resets the for timer --
+              # the same defect class this whole catalog exists to avoid, in
+              # gauge form. max_over_time asks the honest question instead: was
+              # this destination in cooldown at any point in the last 30
+              # minutes, matching the window every counter rule in this file
+              # uses. The available labels are exactly destination and
+              # tenant_namespace; template only those.
+              - alert: KubexaConsumerBackpressure
+                expr: max_over_time(kubexa_consumer_cooldown_active[30m]) == 1
+                for: 0m
+                labels:
+                  severity: warning
+                  component: consumer
+                annotations:
+                  summary: "Consumer is refusing writes to {{ $labels.destination }}"
+                  description: "A rate limit put {{ $labels.destination }} into cooldown for namespace {{ $labels.tenant_namespace }} at some point in the last 30 minutes."
+
+          - name: loki
+            rules:
+              - alert: LokiRetentionStalled
+                # for: 0m deliberately. The condition already contains 24 hours
+                # of patience; waiting longer only delays a message about
+                # something that has been broken for a day.
+                #
+                # The gauge is registered and scraped at 0 before the
+                # compactor's first successful run -- present, not absent, so
+                # this is not the KubexaBackupStale absence pattern. Verified
+                # live: every fresh or restarted pod reads 0 for ~10-15m (its
+                # own compaction_interval) before the first apply_retention
+                # succeeds, and `time() - 0` is enormous -- so the un-guarded
+                # expr fired on every install and every Loki restart, not just
+                # a genuinely stalled compactor. The zero case is guarded on
+                # the process's own uptime instead of the 24h it hasn't
+                # earned yet; a compactor that never once succeeds still
+                # fires once it has had a full day to.
+                expr: |
+                  (
+                    loki_compactor_apply_retention_last_successful_run_timestamp_seconds > 0
+                    and
+                    time() - loki_compactor_apply_retention_last_successful_run_timestamp_seconds > 86400
+                  )
+                  or
+                  (
+                    loki_compactor_apply_retention_last_successful_run_timestamp_seconds == 0
+                    and
+                    time() - process_start_time_seconds{namespace="kubexa", app_kubernetes_io_name="kubexa-loki"} > 86400
+                  )
+                for: 0m
+                labels:
+                  severity: warning
+                  component: loki
+                annotations:
+                  summary: "Loki retention has not run for 24h"
+                  description: "The compactor last applied retention {{ $value | humanizeDuration }} ago. Storage grows without bound while this is true."
+
+              - alert: LokiDiscardingLines
+                # Grouped by reason, and that grouping is the point: rate_limited
+                # and too_far_behind call for different responses, so each
+                # discard reason gets its own alert with its own lifecycle rather
+                # than being summed into one number that says only "something is
+                # being dropped".
+                expr: |
+                  sum by (reason) (rate(loki_discarded_samples_total[5m])) > 0
+                for: 5m
+                labels:
+                  severity: warning
+                  component: loki
+                annotations:
+                  summary: "Loki is discarding log lines ({{ $labels.reason }})"
+                  description: "Discarding {{ $value | humanize }} entries/s for reason {{ $labels.reason }}. Those lines are gone; they are not retried."
+
+          # Off by default. `backup.enabled` is false in the umbrella chart's
+          # values.yaml, and a cluster that has never turned backups on will page
+          # on this rule from the moment vmalert starts, for the same reason it
+          # pages on a genuinely broken CronJob: the metric doesn't exist in
+          # either case, and MetricsQL cannot tell "never enabled" from
+          # "enabled and silently failing since day one" apart. That is a
+          # correct answer for a cluster that IS supposed to be backed up and a
+          # false alarm for one that isn't -- see
+          # ../kubexa/README-restore.md#alert-scoping for how an operator running
+          # without backups keeps this rule from firing on their install.
+          - name: backup
+            rules:
+              # time() - max(metric) alone goes silent -- not merely inactive,
+              # UNEVALUATABLE -- the moment the metric has never been pushed:
+              # max() over zero series returns no series at all, so the whole
+              # expression matches nothing and the rule can never go firing. That
+              # is exactly the failure this alert exists to catch: a CronJob
+              # deleted, an image that cannot be pulled, or a pod that never
+              # started produce no failure event AND no metric, ever.
+              #
+              # `or vector(0)` is the fix, the same role vector(1) plays for
+              # KubexaAlertPipelineHeartbeat above: it folds in an always-present
+              # fallback series so the left side of `-` is never empty. With the
+              # metric absent, max(...) contributes no series and `or` falls
+              # through to vector(0), so the expression becomes time() - 0 --
+              # enormous, and past the threshold on the very first evaluation.
+              # With the metric present, max(...) already has a series and `or`
+              # never reaches its right-hand side, so a healthy install is
+              # unaffected.
+              #
+              # That absence fallback is necessary but not sufficient. The
+              # metric is a once-a-day gauge, not a continuously-scraped one,
+              # and an instant query answers a raw selector from its own
+              # 5-minute lookbehind window by default. Without a lookbehind of
+              # its own, the series drops out of that window five minutes after
+              # a SUCCESSFUL push, `max(...)` contributes no series again, and
+              # `or` falls through to vector(0) exactly as if the backup had
+              # never run -- so the rule would go pending 5 minutes after every
+              # good backup and fire 15 minutes later, unable to distinguish
+              # success from failure at all. `last_over_time(...[48h])` gives
+              # the selector its own 48h lookbehind (wider than the 26h
+              # threshold, so a genuinely stale-but-present metric still
+              # reports its real age) and only the true absence case falls
+              # through to vector(0).
+              - alert: KubexaBackupStale
+                # The threshold comes from the metric, not from this file: the
+                # runner publishes kubexa_backup_max_age_seconds from its own
+                # schedule, so changing the schedule on the settings screen
+                # re-aims this rule with no helm upgrade.
+                #
+                # The lookbehind is 45d, not 48h. A weekly data backup publishes
+                # its success once every seven days, so a 48h window -- which is
+                # what the nightly-only version of this rule used -- drops the
+                # sample and fires on a scope that is working perfectly.
+                #
+                # 45d rather than 35d, and the two numbers are not independent:
+                # the runner publishes 1.2 x the interval as max_age, so a
+                # monthly data scope publishes 36d. With a 35d lookbehind the
+                # samples fall out of the window BEFORE the age crosses the
+                # threshold, and the rule can never be true -- red never, for the
+                # scope holding 99.8% of the data. If MaxAge in
+                # internal/backup/schedule.go grows a longer interval, this
+                # window grows with it.
+                expr: |
+                  (
+                    time() - max by (scope) (last_over_time(kubexa_backup_last_success_timestamp_seconds[45d]))
+                  )
+                  > on (scope)
+                  max by (scope) (last_over_time(kubexa_backup_max_age_seconds[45d]))
+                  and on (scope)
+                  max by (scope) (last_over_time(kubexa_backup_enabled[45d])) == 1
+                for: 15m
+                labels:
+                  severity: critical
+                  component: backup
+                annotations:
+                  summary: "Backup scope {{ $labels.scope }} is stale"
+                  description: "Backup scope {{ $labels.scope }} last succeeded {{ $value | humanizeDuration }} ago, past the threshold its own schedule allows (or has never succeeded at all, if that duration looks like decades). The job may not even be attempting right now -- check whether KubexaBackupFailing or KubexaBackupNotRunning is also firing for this scope before assuming a stale success is the whole story."
+
+              - alert: KubexaBackupFailing
+                # The pod is running and the backup is not working: attempt is
+                # fresh while success is not. Separate from Stale because the
+                # operator response differs -- this one has a pod log to read
+                # right now.
+                expr: |
+                  (
+                    time() - max by (scope) (last_over_time(kubexa_backup_last_attempt_timestamp_seconds[45d])) < 26 * 3600
+                  )
+                  and on (scope)
+                  (
+                    time() - max by (scope) (last_over_time(kubexa_backup_last_success_timestamp_seconds[45d])) > 26 * 3600
+                  )
+                  and on (scope)
+                  max by (scope) (last_over_time(kubexa_backup_enabled[45d])) == 1
+                for: 15m
+                labels:
+                  severity: critical
+                  component: backup
+                annotations:
+                  summary: "Backup scope {{ $labels.scope }} is running but not succeeding"
+                  description: "Backup scope {{ $labels.scope }} has a fresh attempt within the last 26 hours but no success in that same window: the pod is running and the backup is not working. Unlike KubexaBackupStale, there is a pod log to read right now -- this is failing tonight, not merely aging."
+
+              # KubexaBackupNotRunning is REMOVED on this install, and the rule
+              # itself is not wrong -- the install is. Its expression is
+              #
+              #   time() - (max(last_over_time(kubexa_backup_last_attempt_timestamp_seconds[45d])) or vector(0)) > 26 * 3600
+              #
+              # and it deliberately ignores kubexa_backup_enabled so that
+              # switching backups off cannot switch the alarm off. That is the
+              # right stance for an install where backup is MEANT to run. Here
+              # backup.enabled is false on purpose -- the backup image is private
+              # on GHCR and there is no object store account -- so the metric does
+              # not exist at all, `or vector(0)` resolves to 0, and
+              # time() - 0 > 26h is true forever. The result is a CRITICAL that is
+              # permanently firing, that nobody can act on, and that teaches
+              # whoever reads the alert screen to discount criticals. Same shape as
+              # the absence-fallback trap in ../vmalert/README.md: a fallback of 0
+              # makes "never" indistinguishable from "very long ago".
+              #
+              # KubexaBackupStale and KubexaBackupFailing above are left in place
+              # deliberately: both are gated on
+              # `kubexa_backup_enabled == 1`, so with no backup job they evaluate
+              # against nothing and stay silent -- and they start working the
+              # moment backup is turned on, with no edit here.
+              #
+              # PUT THIS BACK the same day backup starts running. Uncommenting the
+              # block below is the whole change; it is quoted verbatim from the
+              # version that ran before 2026-09-26.
+              # - alert: KubexaBackupNotRunning
+              #   # Deliberately NOT gated on enabled: this is the always-present
+              #   # signal. Turning backups off silences the two rules above; it
+              #   # must not silence the one that says the job itself stopped
+              #   # waking up.
+              #   #
+              #   # A disabled run still stamps last_attempt (see
+              #   # internal/backup/metrics.go), so switching backups off on the
+              #   # settings screen does not make this fire -- only a CronJob that
+              #   # never wakes does.
+              #   #
+              #   # `or vector(0)` makes a never-seen metric fire rather than
+              #   # evaluate to nothing -- but only in combination with the
+              #   # lookbehind: with the default 5m window, a once-a-night sample
+              #   # falls out and this fires on a healthy install.
+              #   expr: |
+              #     time() - (max(last_over_time(kubexa_backup_last_attempt_timestamp_seconds[45d])) or vector(0)) > 26 * 3600
+              #   for: 15m
+              #   labels:
+              #     severity: critical
+              #     component: backup
+              #   annotations:
+              #     summary: "The backup job has not run at all in over 26 hours"
+              #     description: "No backup scope has attempted a run at all in over 26 hours ({{ $value | humanizeDuration }} since the last attempt, or effectively forever if that looks like decades). The CronJob itself is not waking up -- deleted, unschedulable, or an image that cannot be pulled -- so there is no pod and no log to read. This rule deliberately ignores kubexa_backup_enabled and keeps firing even with every scope switched off; it is not a false alarm from backups being turned off on purpose."
+
+              # # This chart bundles an Alertmanager and would deploy one by default. Turning
+              # # it off is a decision, not a saving: alerts go straight from vmalert to the
+              # # apiserver, so there is no grouping, inhibition or silencing anywhere in this
+              # # path. An Alertmanager is a second stateful service to operate, for features
+              # # nobody has asked for yet.
+  alertmanager:
+    enabled: false
+
 # ─── components ─────────────────────────────────────────────────────────────
 
 apiserver:
