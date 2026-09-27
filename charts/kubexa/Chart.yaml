@@ -234,7 +234,23 @@ type: application
 # already holds: nil means "unchanged" on that channel, so an agent keeps
 # enforcing its last snapshot until it restarts. Nothing has been pushed on
 # this install yet, so today there is nothing to release.
-version: 0.7.39
+#
+# 0.8.0 adds victoria-metrics-alert as a dependency (alias vmalert,
+# condition vmalert.enabled), bundling the vmalert release that lived in
+# deployments/vmalert. Default OFF, unlike victoriaMetrics/loki/nats above:
+# it needs apiserver.secrets.internalToken set, which this chart never
+# generates, and the alert rules moved into values.yaml's "bundled alerting"
+# section are copied verbatim from deployments/vmalert/values-apexcrawl.yaml,
+# including the 2026-09-27 LokiRetentionStalled zero-vs-absent-gauge fix. No
+# migration, no template change to any other subchart. An install that turns
+# this on for the first time and already ran vmalert as a separate release
+# in the same namespace must uninstall that release first -- two vmalert
+# Deployments would both post every rule's state to the same apiserver
+# endpoint, doubling every notification. Rolling back to 0.7.39 with
+# vmalert.enabled: true set is not meaningful: 0.7.39 has no vmalert key at
+# all, so it renders no vmalert objects and the standalone release (if not
+# yet removed) is the only one still running.
+version: 0.8.0
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -884,6 +900,23 @@ dependencies:
     version: "0.40.1"
     repository: https://victoriametrics.github.io/helm-charts/
     condition: victoriaMetrics.enabled
+  - name: victoria-metrics-alert
+    alias: vmalert
+    # Pinned exactly, never a range. 0.46.0 is the version deployments/vmalert
+    # runs; its values (moved into this chart's defaults, "bundled alerting"
+    # above) are where the rules came from, and deployments/vmalert/README.md
+    # records what was learned operating it live -- the counter pattern, the
+    # absence-fallback trap, and vmalert's own stuck-firing-on-restart defect.
+    #
+    # A separate release for three stated reasons (see the apiserver
+    # dependency's 0.4.6 comment above): optional, needed a datasource this
+    # chart did not own, and mounted a Secret key by name. All three are void
+    # now that this chart bundles victoria-metrics-single above and every
+    # component lives in one namespace -- see values.yaml's "bundled
+    # alerting" header for the default-off reasoning (internalToken).
+    version: "0.46.0"
+    repository: https://victoriametrics.github.io/helm-charts/
+    condition: vmalert.enabled
   - name: loki
     # Pinned exactly, never a range. 7.2.0 (appVersion 3.6.11) is the chart
     # deployments/loki runs; its values file is where the settings below came
