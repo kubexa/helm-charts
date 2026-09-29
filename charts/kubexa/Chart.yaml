@@ -257,7 +257,25 @@ type: application
 # that drives them. No migration, no template change to any other subchart.
 # Rolling back to 0.8.0 removes the screen; the routes and any block an
 # operator already saved through it stay exactly as they are.
-version: 0.8.1
+# 0.8.2 moves apiserver to 0.4.62 and agentserver to 0.2.44, both on image
+# 0.5.54. Two fixes ride in it. (1) The apiserver keys rate limits and audit
+# rows on the real client, not on a Cloudflare edge address: behind
+# Cloudflare -> ingress-nginx its c.IP() was an edge (measured on apexcrawl
+# 2026-09-29, one user's requests arriving from five Cloudflare ranges in a
+# minute), so the per-IP bucket on the public auth routes was per edge and
+# every audit row recorded one. It now reads CF-Connecting-IP, but only when
+# the address nginx saw is in Cloudflare's published ranges -- the origin
+# load balancer is reachable directly, so the header alone is forgeable.
+# (2) The agentserver counts the two handshake rejections it never counted
+# (invalid_token, proto_version), so KubexaHandshakeRejections has a series to
+# fire on; a dead token used to loop silently for hours. Expect that alert to
+# be able to fire right after this upgrade if an agent on the fleet is
+# already refused. No values change, no migration, no template change to any
+# other subchart. Two visible effects: rate-limit counters restart from zero
+# once (the bucket key holds a different address), and audit rows written
+# after the rollout carry the client's address where older ones carry an
+# edge's. Rolling back to 0.8.1 restores both old behaviours and nothing else.
+version: 0.8.2
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -891,7 +909,13 @@ dependencies:
     # purge cascade's missing FK, 0130 the echo columns). Must move with
     # agentserver 0.2.43: this binary calls ReplaceAgentConfigs and
     # RestartAgent. No app counterpart yet.
-    version: "0.4.61"
+    #
+    # 0.4.62 carries image 0.5.54: rate limits and audit rows are keyed on the
+    # real client behind Cloudflare -- CF-Connecting-IP, honoured only when the
+    # peer nginx saw is in Cloudflare's published ranges. Optional override:
+    # config.security.trusted_proxies.cloudflare_cidrs (CIDRs only). No
+    # migration, nothing that must be set. Pairs with agentserver 0.2.44.
+    version: "0.4.62"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -1168,7 +1192,13 @@ dependencies:
     # reconnecting agent, while the pusher keeps nil-means-skip so a partial
     # read cannot wipe a cluster's config. Cluster purge now resyncs and
     # restarts the agent after the row is gone. Pairs with apiserver 0.4.61.
-    version: "0.2.43"
+    #
+    # 0.2.44 carries image 0.5.54: the gateway now increments
+    # kubexa_gateway_handshake_rejected_total for the invalid_token and
+    # proto_version rejections too, with a FIXED reason label (the token
+    # branch's error text would make the label unbounded). Before this only
+    # agent_too_old ever incremented it. Pairs with apiserver 0.4.62.
+    version: "0.2.44"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
