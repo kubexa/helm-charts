@@ -275,7 +275,27 @@ type: application
 # once (the bucket key holds a different address), and audit rows written
 # after the rollout carry the client's address where older ones carry an
 # edge's. Rolling back to 0.8.1 restores both old behaviours and nothing else.
-version: 0.8.2
+# 0.8.3 moves kubexa-apiserver to 0.4.63 and kubexa-agentserver to 0.2.45, both on
+# image 0.5.55: passwords are now checked against a policy and against known
+# breaches before they are set (A4.2, first half). One gate covers register,
+# password reset, change-password, admin create-user and the bootstrap
+# superadmin. Minimum length becomes 10 (was 8), a built-in common-password list
+# applies, a password may not contain the user's email name, username or
+# display-name word, and it is checked against Have I Been Pwned by k-anonymity
+# (only a 5-character SHA-1 prefix leaves the pod). That last check FAILS OPEN:
+# if api.pwnedpasswords.com is unreachable the password is accepted and
+# kubexa_apiserver_password_breach_checks_total{result="error"} counts it, so a
+# blocked egress looks like success and that counter is the proof to read.
+# New optional values under apiserver.config.security.passwordPolicy:
+# minLength (default 10, refused below 8) and breachCheck.enabled / .timeout
+# (default true / 2s; enabled: false for an air-gapped install). Existing
+# passwords and login are untouched; the policy applies only when a password is
+# set. The apiserver pod restarts (its rendered config gained the block). The
+# agentserver chart moves only to keep both components on one image; note that
+# image 0.5.54, deployed by 0.8.2, DID change the agentserver (the handshake
+# counter above) although its 0.2.44 note says otherwise -- corrected in 0.2.45.
+# No migration. Rolling back to 0.8.2 removes the policy and nothing else.
+version: 0.8.3
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -915,7 +935,14 @@ dependencies:
     # peer nginx saw is in Cloudflare's published ranges. Optional override:
     # config.security.trusted_proxies.cloudflare_cidrs (CIDRs only). No
     # migration, nothing that must be set. Pairs with agentserver 0.2.44.
-    version: "0.4.62"
+    #
+    # 0.4.63 carries image 0.5.55: a password policy plus a Have I Been Pwned
+    # check on every path that sets a password (minimum length 10, was 8). The
+    # breached check fails open and is counted in
+    # kubexa_apiserver_password_breach_checks_total. Optional values:
+    # config.security.passwordPolicy.{minLength, breachCheck.enabled/timeout}.
+    # No migration. Pairs with agentserver 0.2.45.
+    version: "0.4.63"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -1198,7 +1225,11 @@ dependencies:
     # proto_version rejections too, with a FIXED reason label (the token
     # branch's error text would make the label unbounded). Before this only
     # agent_too_old ever incremented it. Pairs with apiserver 0.4.62.
-    version: "0.2.44"
+    #
+    # 0.2.45 carries image 0.5.55 and changes nothing in the agentserver; it moves
+    # with the apiserver so both run one image. Its own note for 0.2.44 wrongly
+    # says 0.5.54 left the agentserver unchanged -- the paragraph above is right.
+    version: "0.2.45"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
