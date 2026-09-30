@@ -673,6 +673,33 @@ vmalert:
                   summary: "apiserver is returning 5xx on {{ $labels.route }}"
                   description: "{{ $value | humanize }} server errors in the last 15 minutes on {{ $labels.route }}."
 
+              # The password policy's breached-password lookup FAILS OPEN: when
+              # api.pwnedpasswords.com cannot be reached the password is accepted,
+              # so a blocked egress looks exactly like success and this counter is
+              # the only place it shows. One timeout is weather; every lookup
+              # failing is a blocked egress. The rule therefore fires when, over an
+              # hour, at least one lookup errored AND errors are at least as many
+              # as lookups that got an answer (ok or breached). With no checks at
+              # all both sides are 0 and nothing fires. All three result series
+              # are created at zero when the apiserver starts, so increase() has a
+              # baseline and the name is queryable now; it was checked against
+              # internal/apiserver/metrics/passwordbreach.go. Not relevant when
+              # apiserver.config.security.passwordPolicy.breachCheck.enabled is
+              # false: no lookup runs, the counter never moves, the rule stays quiet.
+              - alert: KubexaPasswordBreachCheckFailing
+                expr: |
+                  sum(increase(kubexa_apiserver_password_breach_checks_total{result="error"}[1h])) > 0
+                  and
+                  sum(increase(kubexa_apiserver_password_breach_checks_total{result="error"}[1h]))
+                    >= sum(increase(kubexa_apiserver_password_breach_checks_total{result=~"ok|breached"}[1h]))
+                for: 0m
+                labels:
+                  severity: warning
+                  component: apiserver
+                annotations:
+                  summary: "Breached-password check cannot reach Have I Been Pwned"
+                  description: "{{ $value | humanize }} breached-password lookups failed in the last hour and none or few succeeded. The policy fails open, so new passwords are being accepted without that check. Look for blocked egress to api.pwnedpasswords.com."
+
           - name: gateway
             rules:
               # The gauge is a state set: three series, exactly one of which is
