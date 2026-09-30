@@ -295,7 +295,11 @@ type: application
 # image 0.5.54, deployed by 0.8.2, DID change the agentserver (the handshake
 # counter above) although its 0.2.44 note says otherwise -- corrected in 0.2.45.
 # No migration. Rolling back to 0.8.2 removes the policy and nothing else.
-version: 0.8.3
+#
+# 0.8.4 moves kubexa-app to 0.1.62 (image 0.2.59): the screen now shows the
+# named password violation and the client minimum is 10. Nothing else moves.
+#
+version: 0.8.4
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -1862,6 +1866,15 @@ dependencies:
     # applied-revision echo -- against an older agent the tab still renders
     # but every block stays "pending" forever. No migration, no apiserver
     # bump needed for this release.
-    version: "0.1.61"
+    #
+    # 0.1.62 carries image 0.2.59: a refused password now shows the apiserver's
+    # named reason (too common, breached, contains your name/username/email,
+    # too short, too long) instead of the generic "validation failed", in
+    # seven languages, and the client-side minimum moves from 8 to 10 on
+    # register, reset, change-password and admin create-user. The login form
+    # is unchanged, so 8-9 character passwords still sign in. Pairs with the
+    # apiserver 0.4.63 pin this umbrella already carries. No migration, no
+    # backend bump needed for this release.
+    version: "0.1.62"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
