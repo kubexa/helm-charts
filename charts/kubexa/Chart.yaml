@@ -299,7 +299,17 @@ type: application
 # 0.8.4 moves kubexa-app to 0.1.62 (image 0.2.59): the screen now shows the
 # named password violation and the client minimum is 10. Nothing else moves.
 #
-version: 0.8.4
+# 0.8.5 adds one vmalert rule, KubexaPasswordBreachCheckFailing, to the apiserver
+# group. The breached-password check fails open, so a blocked egress to
+# api.pwnedpasswords.com looked like success and only a counter showed it. The
+# rule fires when, over an hour, at least one lookup errored and errors are at
+# least as many as answered lookups (ok or breached), so a lone timeout among
+# healthy lookups stays quiet. No template changes; the vmalert rules ConfigMap
+# changes, so the vmalert pod restarts (its alert state is memory-only). Needs
+# apiserver image 0.5.55+, which exports the counter; against an older apiserver
+# the rule matches nothing. Nothing else moves.
+#
+version: 0.8.5
 appVersion: "0.1.0"
 keywords:
   - kubexa
