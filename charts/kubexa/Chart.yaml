@@ -309,7 +309,13 @@ type: application
 # apiserver image 0.5.55+, which exports the counter; against an older apiserver
 # the rule matches nothing. Nothing else moves.
 #
-version: 0.8.5
+# 0.8.6 moves kubexa-apiserver to 0.4.64 and kubexa-agentserver to 0.2.46 (image
+# 0.5.56): argon2id parameters lowered to OWASP's set with hashes upgraded at
+# login, and the username given to the password policy on reset/change. See the
+# apiserver pin for the details and the transitional timing note. Nothing else
+# moves.
+#
+version: 0.8.6
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -956,7 +962,16 @@ dependencies:
     # kubexa_apiserver_password_breach_checks_total. Optional values:
     # config.security.passwordPolicy.{minLength, breachCheck.enabled/timeout}.
     # No migration. Pairs with agentserver 0.2.45.
-    version: "0.4.63"
+    #
+    # 0.4.64 carries image 0.5.56: argon2id moves to OWASP's m=19456 KiB, t=2, p=1
+    # (56 ms -> 18 ms and 67 MB -> 20 MB per hash). Stored hashes keep verifying
+    # and are re-derived at their owner's next successful login, best-effort and
+    # never overwriting a password changed meanwhile. Until each user has logged
+    # in once, the response time of an unknown email differs from theirs (the
+    # dummy hash already uses the new cost). Reset-password and change-password
+    # also give the policy the username now. No values, no migration. Rolling back
+    # is safe: the old image verifies the new hashes. Pairs with agentserver 0.2.46.
+    version: "0.4.64"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -1243,7 +1258,10 @@ dependencies:
     # 0.2.45 carries image 0.5.55 and changes nothing in the agentserver; it moves
     # with the apiserver so both run one image. Its own note for 0.2.44 wrongly
     # says 0.5.54 left the agentserver unchanged -- the paragraph above is right.
-    version: "0.2.45"
+    #
+    # 0.2.46 carries image 0.5.56 and changes nothing in the agentserver; it moves
+    # with the apiserver so both run one image.
+    version: "0.2.46"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
