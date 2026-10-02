@@ -315,7 +315,12 @@ type: application
 # apiserver pin for the details and the transitional timing note. Nothing else
 # moves.
 #
-version: 0.8.6
+# 0.8.7 moves kubexa-app to 0.1.63 (image 0.2.60): the websocket refreshes an
+# expired access token before it redials, and mutation feedback has one owner
+# so the admin plan, user, role and permission screens stop showing a failure
+# twice. Nothing else moves.
+#
+version: 0.8.7
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -1903,6 +1908,13 @@ dependencies:
     # is unchanged, so 8-9 character passwords still sign in. Pairs with the
     # apiserver 0.4.63 pin this umbrella already carries. No migration, no
     # backend bump needed for this release.
-    version: "0.1.62"
+    #
+    # 0.1.63 carries image 0.2.60: a backgrounded tab's websocket no longer
+    # redials with a dead access token every 15s (it refreshes first when the
+    # token's exp has passed), and the admin plan/iam/rbac screens show a
+    # failure once instead of twice: dialogs that render the error inline no
+    # longer also toast it, and success messages come from the mutation's
+    # meta. No contract change, no migration, no backend bump needed.
+    version: "0.1.63"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
