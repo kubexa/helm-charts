@@ -320,7 +320,24 @@ type: application
 # so the admin plan, user, role and permission screens stop showing a failure
 # twice. Nothing else moves.
 #
-version: 0.8.7
+# 0.8.8 moves kubexa-apiserver to 0.4.65, kubexa-agentserver to 0.2.47 and
+# kubexa-app to 0.1.64 (images 0.5.57 and 0.2.61): password history and forced
+# password change. A new password may not equal the current one or any of the
+# previous four (security.password_policy.history, default 5, 0 = off, max 24);
+# an admin can require a user to change their password (create-user checkbox,
+# on by default, and a row action), and a flagged session is limited to
+# changing it. Migrations 0131 and 0132 run in the users database; with
+# migrations.enabled=false apply them first or the new apiserver pods answer
+# every login with a 500. The app and the apiserver are one feature: the app
+# carries the screen the apiserver's flag sends users to, and the apiserver
+# treats an absent must_change as true, so the app must not be OLDER than the
+# apiserver -- this umbrella moves them together. Rolling upgrade: for the
+# duration of the rollout an old apiserver pod ignores the restriction and does
+# not clear the flag after a change; tokens issued before an admin forces a
+# change stay unrestricted for up to 15 minutes. Rolling back to 0.8.7 leaves
+# the flags in the database inactive. Nothing else moves.
+#
+version: 0.8.8
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -976,7 +993,16 @@ dependencies:
     # dummy hash already uses the new cost). Reset-password and change-password
     # also give the policy the username now. No values, no migration. Rolling back
     # is safe: the old image verifies the new hashes. Pairs with agentserver 0.2.46.
-    version: "0.4.64"
+    #
+    # 0.4.65 carries image 0.5.57: password history (a new password may not
+    # equal the current one or any of the previous N-1; config.security.
+    # passwordPolicy.history, default 5, 0 off, max 24) and forced password
+    # change (admin create sets it by default; POST /admin/users/:id/
+    # force-password-change; a flagged session may only change the password,
+    # log out, refresh and read /whoami). Migrations 0131 and 0132. See the
+    # chart's own note for the rolling-upgrade details. Pairs with app 0.1.64
+    # and agentserver 0.2.47.
+    version: "0.4.65"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -1266,7 +1292,10 @@ dependencies:
     #
     # 0.2.46 carries image 0.5.56 and changes nothing in the agentserver; it moves
     # with the apiserver so both run one image.
-    version: "0.2.46"
+    #
+    # 0.2.47 carries image 0.5.57 and changes nothing in the agentserver; it moves
+    # with the apiserver so both run one image.
+    version: "0.2.47"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
@@ -1915,6 +1944,11 @@ dependencies:
     # failure once instead of twice: dialogs that render the error inline no
     # longer also toast it, and success messages come from the mutation's
     # meta. No contract change, no migration, no backend bump needed.
-    version: "0.1.63"
+    #
+    # 0.1.64 carries image 0.2.61: the forced-password-change screen, the admin
+    # create-user checkbox and the "Force password change" row action. Needs
+    # apiserver 0.4.65 for the flag and the endpoint; ship it before or with the
+    # apiserver, never after.
+    version: "0.1.64"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
