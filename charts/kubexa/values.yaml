@@ -700,6 +700,24 @@ vmalert:
                   summary: "Breached-password check cannot reach Have I Been Pwned"
                   description: "{{ $value | humanize }} breached-password lookups failed in the last hour and none or few succeeded. The policy fails open, so new passwords are being accepted without that check. Look for blocked egress to api.pwnedpasswords.com."
 
+              # The gate fails open, so result="error" is the only signal that
+              # revocation has quietly stopped being enforced. Checked against
+              # internal/apiserver/metrics/sessiongate.go. No `or vector(0)`:
+              # that fallback fires on success too.
+              - alert: KubexaSessionGateFailing
+                expr: |
+                  sum(increase(kubexa_apiserver_session_gate_checks_total{result="error"}[1h])) > 0
+                  and
+                  sum(increase(kubexa_apiserver_session_gate_checks_total{result="error"}[1h]))
+                    >= sum(increase(kubexa_apiserver_session_gate_checks_total{result=~"live|revoked"}[1h]))
+                for: 0m
+                labels:
+                  severity: warning
+                  component: apiserver
+                annotations:
+                  summary: "Session revocation is not being enforced"
+                  description: "{{ $value | humanize }} session-liveness checks failed in the last hour and none or few succeeded. The gate fails open, so revoked sessions are being served. Check the apiserver's Redis connection."
+
           - name: gateway
             rules:
               # The gauge is a state set: three series, exactly one of which is

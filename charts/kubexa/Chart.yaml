@@ -337,7 +337,19 @@ type: application
 # change stay unrestricted for up to 15 minutes. Rolling back to 0.8.7 leaves
 # the flags in the database inactive. Nothing else moves.
 #
-version: 0.8.8
+# 0.8.9 adds one vmalert rule, KubexaSessionGateFailing, to the apiserver group.
+# The session-liveness gate that makes a revoked session stop working fails
+# open: when Redis cannot be reached the request is served, so revocation can
+# silently stop being enforced and only a counter shows it. The rule fires when,
+# over an hour, at least one check errored and errors are at least as many as
+# answered checks (live or revoked), so a lone Redis blip among healthy checks
+# stays quiet. No template changes; the vmalert rules ConfigMap changes, so the
+# vmalert pod restarts (its alert state is memory-only). Needs an apiserver
+# image that exports kubexa_apiserver_session_gate_checks_total (the session
+# revocation release, after 0.5.57); against an older apiserver the rule
+# matches nothing. Nothing else moves.
+#
+version: 0.8.9
 appVersion: "0.1.0"
 keywords:
   - kubexa
