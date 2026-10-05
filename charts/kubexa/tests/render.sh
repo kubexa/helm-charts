@@ -130,6 +130,31 @@ assert_postgres_wiring() {
   ok "$profile: postgres wiring"
 }
 
+# The vmalert rules ConfigMap must carry the apiserver's fail-open alerts. With
+# vmalert default off, no other profile renders it, so a rule missing from
+# values.yaml (or from the chart's rule list) was invisible to the harness.
+# Sliced to the ConfigMap's OWN document (extract_source): the rule names
+# appear in values.yaml comments and annotations elsewhere, and a whole-render
+# grep proves nothing about which object carries them. Herestrings, not pipes:
+# see assert_bundled_vm.
+assert_vmalert_rules() {
+  local out=$1 profile=$2
+  [ "$profile" = "vmalert" ] || return 0
+  local doc
+  doc=$(extract_source "$out" "kubexa/charts/vmalert/templates/alert-configmap.yaml")
+  if [ -z "$doc" ]; then
+    fail "$profile: no vmalert alert-configmap.yaml document found in the render"
+    return
+  fi
+  for rule in KubexaPasswordBreachCheckFailing KubexaSessionGateFailing; do
+    if grep -qE "^[[:space:]]*- alert: $rule$" <<< "$doc"; then
+      ok "$profile: vmalert rule $rule"
+    else
+      fail "$profile: vmalert rules ConfigMap lacks $rule"
+    fi
+  done
+}
+
 assert_backup_absent_by_default() {
   local out=$1 profile=$2
   case "$profile" in
