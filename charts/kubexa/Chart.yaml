@@ -337,17 +337,36 @@ type: application
 # change stay unrestricted for up to 15 minutes. Rolling back to 0.8.7 leaves
 # the flags in the database inactive. Nothing else moves.
 #
-# 0.8.9 adds one vmalert rule, KubexaSessionGateFailing, to the apiserver group.
-# The session-liveness gate that makes a revoked session stop working fails
-# open: when Redis cannot be reached the request is served, so revocation can
-# silently stop being enforced and only a counter shows it. The rule fires when,
-# over an hour, at least one check errored and errors are at least as many as
-# answered checks (live or revoked), so a lone Redis blip among healthy checks
-# stays quiet. No template changes; the vmalert rules ConfigMap changes, so the
-# vmalert pod restarts (its alert state is memory-only). Needs an apiserver
-# image that exports kubexa_apiserver_session_gate_checks_total (the session
-# revocation release, after 0.5.57); against an older apiserver the rule
-# matches nothing. Nothing else moves.
+# 0.8.9 adds TWO vmalert rules to the apiserver group, KubexaSessionGateFailing
+# and KubexaSessionGateErroring. The session-liveness gate that makes a revoked
+# session stop working fails open: when Redis cannot be reached the request is
+# served, so revocation can silently stop being enforced and only a counter
+# shows it.
+#
+# Two rules, because one window cannot cover both failures. The first fires when,
+# over an HOUR, at least one check errored and errors are at least as many as
+# answered checks (live or revoked) -- the dominance shape borrowed from
+# KubexaPasswordBreachCheckFailing, which keeps a lone Redis blip among healthy
+# checks quiet. On its own it is not enough: a Redis failover or an apiserver
+# restart that blanks enforcement for five minutes out of the hour puts errors
+# at roughly 8% of checks, far from dominant, and that rule stays silent through
+# exactly the window an operator is clicking "revoke". So the second fires on any
+# sustained errors at all -- rate above zero held for 5m -- at severity info,
+# because a blip is expected and the point is only that the blank window is on
+# the record.
+#
+# THE RULES NEED vmalert.enabled=true, WHICH IS FALSE BY DEFAULT. On a default
+# install neither rule is deployed and this visibility does not exist; the gate
+# still fails open and nothing says so. Operators who rely on revocation being
+# enforced must turn vmalert on (or scrape the counter from their own
+# Prometheus). charts/kubexa/tests/render.sh's vmalert profile is what pins both
+# rules into the golden render.
+#
+# No template changes; the vmalert rules ConfigMap changes, so the vmalert pod
+# restarts (its alert state is memory-only). Needs an apiserver image that
+# exports kubexa_apiserver_session_gate_checks_total (the session revocation
+# release, after 0.5.57); against an older apiserver both rules match nothing.
+# Nothing else moves.
 #
 version: 0.8.9
 appVersion: "0.1.0"

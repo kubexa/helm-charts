@@ -718,6 +718,33 @@ vmalert:
                   summary: "Session revocation is not being enforced"
                   description: "{{ $value | humanize }} session-liveness checks failed in the last hour and none or few succeeded. The gate fails open, so revoked sessions are being served. Check the apiserver's Redis connection."
 
+              # The companion to the rule above, and the reason there are two.
+              # The 1h dominance shape was inherited from
+              # KubexaPasswordBreachCheckFailing, where it is right: one
+              # unreachable HIBP lookup among thousands of good ones is weather.
+              # Revocation is a different stake. A Redis failover or an apiserver
+              # pod restart that blanks enforcement for five minutes out of the
+              # hour produces errors at roughly 8% of checks -- nowhere near
+              # dominant -- so the rule above stays SILENT through exactly the
+              # window in which an operator is clicking "revoke" and being told
+              # it worked. This one fires on any sustained errors at all: a rate
+              # above zero held for five minutes. It is severity info rather
+              # than warning because a brief blip is expected and not worth
+              # waking anyone; what it buys is that the blank window is on the
+              # record. No `or vector(0)` here either -- all three result series
+              # are created at zero by the apiserver's metric constructor, so
+              # that fallback would make this fire on success too.
+              - alert: KubexaSessionGateErroring
+                expr: |
+                  sum(rate(kubexa_apiserver_session_gate_checks_total{result="error"}[5m])) > 0
+                for: 5m
+                labels:
+                  severity: info
+                  component: apiserver
+                annotations:
+                  summary: "Session revocation enforcement is intermittently blind"
+                  description: "Session-liveness checks have been erroring for 5 minutes. The gate fails open, so any session revoked in this window keeps working until its access token expires -- up to 15 minutes on the default access_ttl. Check the apiserver's Redis connection."
+
           - name: gateway
             rules:
               # The gauge is a state set: three series, exactly one of which is

@@ -146,7 +146,7 @@ assert_vmalert_rules() {
     fail "$profile: no vmalert alert-configmap.yaml document found in the render"
     return
   fi
-  for rule in KubexaPasswordBreachCheckFailing KubexaSessionGateFailing; do
+  for rule in KubexaPasswordBreachCheckFailing KubexaSessionGateFailing KubexaSessionGateErroring; do
     if grep -qE "^[[:space:]]*- alert: $rule$" <<< "$doc"; then
       ok "$profile: vmalert rule $rule"
     else
