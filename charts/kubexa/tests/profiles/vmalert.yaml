@@ -1,0 +1,22 @@
+# The empty-cluster install with the bundled vmalert switched on. vmalert is
+# default OFF (vmalert.enabled=false), so no other profile renders the alert
+# rules ConfigMap at all, and a rule added to values.yaml could be missing from
+# the install while every assertion stayed green. This profile exists so
+# assert_vmalert_rules has a render that contains the rules. Everything else is
+# the default profile's, including the ingress hosts the guards require.
+vmalert:
+  enabled: true
+app:
+  ingress:
+    enabled: true
+    host: kubexa.example.com
+apiserver:
+  ingress:
+    enabled: true
+    host: kubexa.example.com
+  config:
+    corsAllowedOrigins:
+      - https://kubexa.example.com
+    ws:
+      origins:
+        - https://kubexa.example.com
