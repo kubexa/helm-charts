@@ -387,7 +387,19 @@ type: application
 # restarts (its alert state is memory-only). Rolling upgrade and rollback are
 # in the apiserver chart's own 0.4.66 note. kubexa-app does not move.
 #
-version: 0.8.9
+# 0.8.10 moves kubexa-app to 0.1.65 (image 0.2.62) and nothing else. Turkish
+# copy only: one word for password across the UI instead of two (şifre and
+# parola were both in use, sometimes in the same screen), three further copy
+# fixes in the same screens, and a locales test that pins the terminology so it
+# cannot drift back. No template change, no contract change, no migration, and
+# it pairs with any apiserver.
+#
+# It is its own version rather than part of 0.8.9 because it has nothing to do
+# with session revocation: bundling an unrelated copy fix into that release
+# would make one version two claims. The app is also the only component that
+# moves here, so a rollback to 0.8.9 costs only the copy.
+#
+version: 0.8.10
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -2009,6 +2021,11 @@ dependencies:
     # create-user checkbox and the "Force password change" row action. Needs
     # apiserver 0.4.65 for the flag and the endpoint; ship it before or with the
     # apiserver, never after.
-    version: "0.1.64"
+    #
+    # 0.1.65 carries image 0.2.62: Turkish copy only -- one word for password
+    # across the UI, three further copy fixes in the same screens, and a locales
+    # test that pins the terminology. No template change and no contract change,
+    # so it pairs with any apiserver and can move on its own.
+    version: "0.1.65"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
