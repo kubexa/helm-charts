@@ -362,11 +362,30 @@ type: application
 # Prometheus). charts/kubexa/tests/render.sh's vmalert profile is what pins both
 # rules into the golden render.
 #
+# 0.8.9 also moves kubexa-apiserver to 0.4.66 and kubexa-agentserver to 0.2.48
+# (image 0.5.58), which is the release that makes session revocation enforce
+# and the only one that exports the counter these rules read. The rule and the
+# series it matches ship together deliberately: an earlier draft of this
+# version carried the rules alone on apiserver 0.4.65, and on that image both
+# rules match nothing at all -- an operator would install the alerting for a
+# gate whose metric does not exist yet. The same mistake is recorded under
+# kubexa-apiserver 0.4.0/0.4.1 below, where a chart rendered every flag of a
+# feature correctly and deployed an image that had none of it.
+#
+# What the apiserver image changes: revoking a session now denylists it in
+# Redis and publishes a kill every replica acts on, so the access token stops
+# working (401 auth.session_revoked) and the session's WebSockets and console
+# terminals close instead of outliving the revoke by up to the token's 15
+# minutes -- or, for sockets, indefinitely. New endpoint DELETE
+# /auth/sessions/others; DELETE /auth/sessions now ends the caller's own
+# session too. Migration 0133 (console close_reason accepts 'revoked') runs in
+# the users database; with migrations.enabled=false apply it first or a revoked
+# console's audit row is left open. The gate fails open and is bounded to
+# 150 ms per request, which is what the two rules above are watching for.
+#
 # No template changes; the vmalert rules ConfigMap changes, so the vmalert pod
-# restarts (its alert state is memory-only). Needs an apiserver image that
-# exports kubexa_apiserver_session_gate_checks_total (the session revocation
-# release, after 0.5.57); against an older apiserver both rules match nothing.
-# Nothing else moves.
+# restarts (its alert state is memory-only). Rolling upgrade and rollback are
+# in the apiserver chart's own 0.4.66 note. kubexa-app does not move.
 #
 version: 0.8.9
 appVersion: "0.1.0"
@@ -1033,7 +1052,13 @@ dependencies:
     # log out, refresh and read /whoami). Migrations 0131 and 0132. See the
     # chart's own note for the rolling-upgrade details. Pairs with app 0.1.64
     # and agentserver 0.2.47.
-    version: "0.4.65"
+    #
+    # 0.4.66 carries image 0.5.58: session revocation now enforces. It is the
+    # first image that exports kubexa_apiserver_session_gate_checks_total,
+    # which the two KubexaSessionGate* rules added in umbrella 0.8.9 read --
+    # they move together for that reason. Migration 0133 runs in the users
+    # database. Pairs with agentserver 0.2.48; the app does not move.
+    version: "0.4.66"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -1326,7 +1351,11 @@ dependencies:
     #
     # 0.2.47 carries image 0.5.57 and changes nothing in the agentserver; it moves
     # with the apiserver so both run one image.
-    version: "0.2.47"
+    #
+    # 0.2.48 carries image 0.5.58 and changes nothing in the agentserver; it moves
+    # with the apiserver so both run one image. Session revocation is entirely
+    # an apiserver concern -- the backend change touched no agentserver path.
+    version: "0.2.48"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
