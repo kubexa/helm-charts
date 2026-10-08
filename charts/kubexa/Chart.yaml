@@ -399,7 +399,7 @@ type: application
 # would make one version two claims. The app is also the only component that
 # moves here, so a rollback to 0.8.9 costs only the copy.
 #
-version: 0.8.10
+version: 0.8.11
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -2026,6 +2026,17 @@ dependencies:
     # across the UI, three further copy fixes in the same screens, and a locales
     # test that pins the terminology. No template change and no contract change,
     # so it pairs with any apiserver and can move on its own.
-    version: "0.1.65"
+    #
+    # 0.1.66 carries image 0.2.63: two mobile defects on the /iam Users tab. The
+    # user list was a six-column table that on a phone kept the page from
+    # breaking only by pushing roles, status and the per-user actions menu
+    # behind a horizontal scroll -- measured in Chrome at 390px, 586px past the
+    # viewport's right edge; it is now a card list below `md`, unchanged from
+    # `md` up. And the direct-permission panel named nobody, because the access
+    # endpoint carries no identity -- it now states the subject in every state,
+    # and its no-direct-grants explanation no longer REPLACES the editor on
+    # phones only. No template change and no contract change, so it pairs with
+    # any apiserver and moves on its own.
+    version: "0.1.66"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
