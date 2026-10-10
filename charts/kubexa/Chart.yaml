@@ -399,7 +399,30 @@ type: application
 # would make one version two claims. The app is also the only component that
 # moves here, so a rollback to 0.8.9 costs only the copy.
 #
-version: 0.8.11
+# 0.8.11 moves kubexa-app to 0.1.66 (image 0.2.63) and nothing else: two mobile
+# defects on the /iam Users tab -- a six-column table that hid roles, status and
+# the per-user actions menu behind a horizontal scroll on a phone, and a
+# direct-permission panel that never named the user whose grants were being
+# edited. No template change, no contract change, pairs with any apiserver.
+# (This paragraph was written with 0.8.12; the 0.8.11 bump landed without one.)
+#
+# 0.8.12 moves kubexa-app to 0.1.67 (image 0.2.64) and nothing else: the admin
+# console's scroll architecture. /iam, /members, /plan and /menu were all
+# fixed-height "cockpits" at every viewport -- chrome outside the scroller, the
+# active panel handed whatever height was left -- so on a short screen the
+# content area collapsed (measured in Chrome: 21px of a 740x280 window holding
+# 1928px of content) while the page itself could not scroll the chrome out of
+# the way. A phone held sideways was unusable. Those pages now flow as ordinary
+# documents below a width-AND-height predicate and keep today's cockpit above
+# it, verified element-for-element on desktop. Two defects fall out of the same
+# work: the section picker's bottom sheet showed 3 of 5 sections on a landscape
+# phone and now gives way to the inline strip there, and /members' eleven-wide
+# section strip no longer pushes the page 332px sideways.
+#
+# No template change, no contract change, no migration, and the app is the only
+# component that moves, so a rollback to 0.8.11 costs only this layout work.
+#
+version: 0.8.12
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -2037,6 +2060,16 @@ dependencies:
     # and its no-direct-grants explanation no longer REPLACES the editor on
     # phones only. No template change and no contract change, so it pairs with
     # any apiserver and moves on its own.
-    version: "0.1.66"
+    #
+    # 0.1.67 carries image 0.2.64: the admin console's scroll architecture. Every
+    # admin page was a fixed-height cockpit at every size, so on a short viewport
+    # the chrome kept its full height, the content area collapsed to as little as
+    # 21px, and the page could not scroll it away -- a landscape phone was
+    # unusable. The cockpit is now gated on a width-AND-height predicate (the
+    # height half matters: the worst case measured was 844px wide) and the pages
+    # flow as ordinary documents outside it. Desktop is unchanged, proven by
+    # dumping every element's geometry before and after. No template change and
+    # no contract change, so it pairs with any apiserver and moves on its own.
+    version: "0.1.67"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
