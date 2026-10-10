@@ -422,7 +422,20 @@ type: application
 # No template change, no contract change, no migration, and the app is the only
 # component that moves, so a rollback to 0.8.11 costs only this layout work.
 #
-version: 0.8.12
+# 0.8.13 moves the apiserver chart to 0.4.67 and the agentserver chart to 0.2.49,
+# both on backend image 0.5.59. Nothing in the cluster behaves differently: the
+# image gains one subcommand that nothing calls, and the only template change is
+# a comment in the apiserver's migrate initContainer. No migration -- `users`
+# stays at 133 and `app` at 125 -- so this upgrade sequences nothing and a
+# rollback to 0.8.12 costs only the subcommand.
+#
+# What the subcommand is for: /kubexa-migrate --db=<set> --from=N plan reports
+# which migrations a build would apply on top of version N and whether each one
+# can be undone, without opening a database or reading a config. It is what makes
+# docs/operations/upgrade.md's section 1 answerable, and this is the first
+# umbrella an operator can run that document against.
+#
+version: 0.8.13
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -1093,7 +1106,7 @@ dependencies:
     # which the two KubexaSessionGate* rules added in umbrella 0.8.9 read --
     # they move together for that reason. Migration 0133 runs in the users
     # database. Pairs with agentserver 0.2.48; the app does not move.
-    version: "0.4.66"
+    version: "0.4.67"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -1390,7 +1403,7 @@ dependencies:
     # 0.2.48 carries image 0.5.58 and changes nothing in the agentserver; it moves
     # with the apiserver so both run one image. Session revocation is entirely
     # an apiserver concern -- the backend change touched no agentserver path.
-    version: "0.2.48"
+    version: "0.2.49"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
