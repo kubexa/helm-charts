@@ -448,7 +448,23 @@ type: application
 # commit as any change under charts/kubexa/, comments included. The workflow
 # will not stop you, and overwriting a published chart is silent.
 #
-version: 0.8.14
+# 0.8.15 re-enables the KubexaBackupNotRunning alert rule, which was commented
+# out on 2026-09-26 because with backup.enabled=false the metric did not exist,
+# `or vector(0)` resolved to 0, and the rule was a permanently firing critical.
+# Backups started running on apexcrawl on 2026-10-11 (filesystem driver, 20Gi
+# PVC), so the condition that made it useless is gone. Its expression was
+# evaluated against the live VictoriaMetrics BEFORE re-enabling: 0 series, with
+# the inner term reading 54 s since the last attempt -- a real series rather
+# than the vector(0) fallback, which is the only way to tell those two apart.
+#
+# No other change, and nothing in the chart's defaults moves: the rule ships in
+# the bundled vmalert values, so an install with backup.enabled=false (the
+# default) now carries a rule that WILL fire for it. That is deliberate per the
+# rule's own comment -- it is the signal that the job stopped waking up, and it
+# must not be silenceable by turning backups off -- but such an install should
+# comment it out again rather than page on it.
+#
+version: 0.8.15
 appVersion: "0.1.0"
 keywords:
   - kubexa

@@ -1068,60 +1068,43 @@ vmalert:
                   summary: "Backup scope {{ $labels.scope }} is running but not succeeding"
                   description: "Backup scope {{ $labels.scope }} has a fresh attempt within the last 26 hours but no success in that same window: the pod is running and the backup is not working. Unlike KubexaBackupStale, there is a pod log to read right now -- this is failing tonight, not merely aging."
 
-              # KubexaBackupNotRunning is REMOVED on this install, and the rule
-              # itself is not wrong -- the install is. Its expression is
+              # KubexaBackupNotRunning was commented out between 2026-09-26 and
+              # 2026-10-11, because with backup.enabled=false the metric did not
+              # exist, `or vector(0)` resolved to 0, and time() - 0 > 26h was true
+              # forever -- a permanently firing critical nobody could act on.
               #
-              #   time() - (max(last_over_time(kubexa_backup_last_attempt_timestamp_seconds[45d])) or vector(0)) > 26 * 3600
-              #
-              # and it deliberately ignores kubexa_backup_enabled so that
-              # switching backups off cannot switch the alarm off. That is the
-              # right stance for an install where backup is MEANT to run. Here
-              # backup.enabled is false on purpose -- there is no object store
-              # account. (The "image is private on GHCR" half of this reason was
-              # fixed on 2026-09-23: every package pulls anonymously now. And the
-              # filesystem driver needs no account at all, so "no store" is a
-              # choice about durability, not a hard block -- see the backup:
-              # block's own comment.) So the metric does not exist at all,
-              # `or vector(0)` resolves to 0, and
-              # time() - 0 > 26h is true forever. The result is a CRITICAL that is
-              # permanently firing, that nobody can act on, and that teaches
-              # whoever reads the alert screen to discount criticals. Same shape as
-              # the absence-fallback trap in ../vmalert/README.md: a fallback of 0
-              # makes "never" indistinguishable from "very long ago".
-              #
-              # KubexaBackupStale and KubexaBackupFailing above are left in place
-              # deliberately: both are gated on
-              # `kubexa_backup_enabled == 1`, so with no backup job they evaluate
-              # against nothing and stay silent -- and they start working the
-              # moment backup is turned on, with no edit here.
-              #
-              # PUT THIS BACK the same day backup starts running. Uncommenting the
-              # block below is the whole change; it is quoted verbatim from the
-              # version that ran before 2026-09-26.
-              # - alert: KubexaBackupNotRunning
-              #   # Deliberately NOT gated on enabled: this is the always-present
-              #   # signal. Turning backups off silences the two rules above; it
-              #   # must not silence the one that says the job itself stopped
-              #   # waking up.
-              #   #
-              #   # A disabled run still stamps last_attempt (see
-              #   # internal/backup/metrics.go), so switching backups off on the
-              #   # settings screen does not make this fire -- only a CronJob that
-              #   # never wakes does.
-              #   #
-              #   # `or vector(0)` makes a never-seen metric fire rather than
-              #   # evaluate to nothing -- but only in combination with the
-              #   # lookbehind: with the default 5m window, a once-a-night sample
-              #   # falls out and this fires on a healthy install.
-              #   expr: |
-              #     time() - (max(last_over_time(kubexa_backup_last_attempt_timestamp_seconds[45d])) or vector(0)) > 26 * 3600
-              #   for: 15m
-              #   labels:
-              #     severity: critical
-              #     component: backup
-              #   annotations:
-              #     summary: "The backup job has not run at all in over 26 hours"
-              #     description: "No backup scope has attempted a run at all in over 26 hours ({{ $value | humanizeDuration }} since the last attempt, or effectively forever if that looks like decades). The CronJob itself is not waking up -- deleted, unschedulable, or an image that cannot be pulled -- so there is no pod and no log to read. This rule deliberately ignores kubexa_backup_enabled and keeps firing even with every scope switched off; it is not a false alarm from backups being turned off on purpose."
+              # Restored 2026-10-11, the day backups started running on apexcrawl
+              # (filesystem driver, 20Gi PVC). Its expression was evaluated against
+              # the live VictoriaMetrics BEFORE being re-enabled, which is the
+              # check that distinguishes the two cases this rule confuses when the
+              # metric is absent: it returned 0 series, and the inner term read 54s
+              # since the last attempt -- a real series, not the vector(0) fallback.
+              # An install that leaves backup.enabled=false must comment it out
+              # again, for the reason above.
+              - alert: KubexaBackupNotRunning
+                # Deliberately NOT gated on enabled: this is the always-present
+                # signal. Turning backups off silences the two rules above; it
+                # must not silence the one that says the job itself stopped
+                # waking up.
+                #
+                # A disabled run still stamps last_attempt (see
+                # internal/backup/metrics.go), so switching backups off on the
+                # settings screen does not make this fire -- only a CronJob that
+                # never wakes does.
+                #
+                # `or vector(0)` makes a never-seen metric fire rather than
+                # evaluate to nothing -- but only in combination with the
+                # lookbehind: with the default 5m window, a once-a-night sample
+                # falls out and this fires on a healthy install.
+                expr: |
+                  time() - (max(last_over_time(kubexa_backup_last_attempt_timestamp_seconds[45d])) or vector(0)) > 26 * 3600
+                for: 15m
+                labels:
+                  severity: critical
+                  component: backup
+                annotations:
+                  summary: "The backup job has not run at all in over 26 hours"
+                  description: "No backup scope has attempted a run at all in over 26 hours ({{ $value | humanizeDuration }} since the last attempt, or effectively forever if that looks like decades). The CronJob itself is not waking up -- deleted, unschedulable, or an image that cannot be pulled -- so there is no pod and no log to read. This rule deliberately ignores kubexa_backup_enabled and keeps firing even with every scope switched off; it is not a false alarm from backups being turned off on purpose."
 
               # # This chart bundles an Alertmanager and would deploy one by default. Turning
               # # it off is a decision, not a saving: alerts go straight from vmalert to the
