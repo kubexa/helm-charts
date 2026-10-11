@@ -1076,9 +1076,13 @@ vmalert:
               # and it deliberately ignores kubexa_backup_enabled so that
               # switching backups off cannot switch the alarm off. That is the
               # right stance for an install where backup is MEANT to run. Here
-              # backup.enabled is false on purpose -- the backup image is private
-              # on GHCR and there is no object store account -- so the metric does
-              # not exist at all, `or vector(0)` resolves to 0, and
+              # backup.enabled is false on purpose -- there is no object store
+              # account. (The "image is private on GHCR" half of this reason was
+              # fixed on 2026-09-23: every package pulls anonymously now. And the
+              # filesystem driver needs no account at all, so "no store" is a
+              # choice about durability, not a hard block -- see the backup:
+              # block's own comment.) So the metric does not exist at all,
+              # `or vector(0)` resolves to 0, and
               # time() - 0 > 26h is true forever. The result is a CRITICAL that is
               # permanently firing, that nobody can act on, and that teaches
               # whoever reads the alert screen to discount criticals. Same shape as
