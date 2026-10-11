@@ -435,7 +435,20 @@ type: application
 # docs/operations/upgrade.md's section 1 answerable, and this is the first
 # umbrella an operator can run that document against.
 #
-version: 0.8.13
+# 0.8.14 changes NO template and NO default. It exists because 0.8.13 was
+# published twice: this workflow fires on any change under charts/kubexa/ and
+# pushes whatever version Chart.yaml names, with no check that the version is
+# new, so a comment-only commit on 2026-10-11 overwrote the 0.8.13 artifact
+# that was already installed. Two different digests answered to --version
+# 0.8.13, which makes an install log that names a chart version unreproducible
+# -- the one thing a pinned version is for. This bump gives the live install a
+# version that identifies exactly one artifact again.
+#
+# The lesson, for whoever touches this file next: bump the version in the SAME
+# commit as any change under charts/kubexa/, comments included. The workflow
+# will not stop you, and overwriting a published chart is silent.
+#
+version: 0.8.14
 appVersion: "0.1.0"
 keywords:
   - kubexa
