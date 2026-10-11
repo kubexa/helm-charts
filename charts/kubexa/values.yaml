@@ -1398,7 +1398,22 @@ backup:
   # scope and reads enabled/destination/retention/schedule from platform_settings
   # rather than from this chart. 0.1.0 still runs against a 0.5.19 schema -- it
   # simply backs up one undivided kubexa_app, all 6.7 GB of it, every night.
-  image: ghcr.io/kubexa/kubexa-backup:0.2.0
+  #
+  # The version here is not cosmetic: this image embeds the goose migrations,
+  # and RestorePreflight refuses a dump whose schema version is ABOVE the
+  # embedded ceiling. 0.2.0 embeds app 0077 / users 0086; an install whose
+  # database has moved past that takes backups it cannot restore, and says
+  # nothing until the restore. 0.2.1 embeds app 0125 / users 0133 and publishes
+  # both as OCI labels dev.kubexa.migrations.app / .users:
+  #
+  #   docker buildx imagetools inspect ghcr.io/kubexa/kubexa-backup:0.2.1 \
+  #     --format '{{ json .Provenance }}'
+  #
+  # Compare that against `select max(version_id) from goose_db_version_app` on
+  # the install before trusting a backup. ci.yml's backup-image-drift job fails
+  # a BACKEND release whose migrations have outrun the newest backup-v* tag, so
+  # the gap should not reopen -- but this value still has to be moved by hand.
+  image: ghcr.io/kubexa/kubexa-backup:0.2.1
   imagePullPolicy: IfNotPresent
   workDir:
     sizeLimit: 10Gi

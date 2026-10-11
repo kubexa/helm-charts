@@ -464,7 +464,25 @@ type: application
 # must not be silenceable by turning backups off -- but such an install should
 # comment it out again rather than page on it.
 #
-version: 0.8.15
+# 0.8.16 points backup.image at 0.2.1, the first backup image CI has ever
+# built. 0.2.0 was tagged and pushed BY HAND on 2026-08-30 and nothing rebuilt
+# it afterwards, so it embeds app migrations up to 0077 and users up to 0086
+# while the live database is at 0125/0133. The dump path never reads that
+# ceiling -- pg_dump is pg_dump -- but internal/backup.RestorePreflight refuses
+# a dump whose goose version is above the binary's embedded ceiling, on purpose,
+# rather than restoring into a schema the binary cannot manage. The result was
+# six weeks of backups that could not be restored, discovered at the only
+# moment that cannot absorb it: the restore. 0.2.1 embeds 0125/0133 and carries
+# them as OCI labels dev.kubexa.migrations.app / .users, so the ceiling can be
+# read off a published image for the first time.
+#
+# Upgrading this value does not fix an archive already taken: an archive is
+# restorable by a build at least as new as the schema it came from, and the
+# archives on the volume are at 0125/0133, so 0.2.1 is exactly new enough. No
+# migration, no template change. Rolling back to 0.2.0 reinstates an image that
+# dumps fine and restores nothing.
+#
+version: 0.8.16
 appVersion: "0.1.0"
 keywords:
   - kubexa
