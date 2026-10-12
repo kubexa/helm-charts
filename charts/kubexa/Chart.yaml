@@ -482,7 +482,36 @@ type: application
 # migration, no template change. Rolling back to 0.2.0 reinstates an image that
 # dumps fine and restores nothing.
 #
-version: 0.8.16
+# 0.8.17 keeps the bundled Postgres's auth Secret when the release is
+# uninstalled, because its password is part of the data on the volume rather
+# than part of the release. Measured on 2026-10-12 against a fresh k3d
+# cluster, which is what A0.2 Task 9 exists to do: `helm uninstall` deleted
+# kubexa-postgres-auth and left data-kubexa-postgres-0 Bound, so the next
+# `helm install` found no Secret to read back and generated new passwords,
+# while the roles on the surviving volume still held the old ones -- the init
+# script runs only on an empty PGDATA and no ALTER ROLE mechanism exists.
+#
+# Nothing noticed. The reinstall reported STATUS: deployed, `--wait` exited 0
+# and all six pods went Ready in 68 s, because this chart's Postgres probe is
+# `pg_isready -U postgres -h 127.0.0.1`, which the image's own pg_hba answers
+# over a `trust` line. The failure appeared only on the first connection over
+# the Service: FATAL: password authentication failed for user "kubexa_app".
+# A render cannot see this and neither can --wait; only an install can.
+#
+# Verified after the fix, same cluster: write a row, uninstall, reinstall,
+# authenticate over the Service with the preserved password, read the row
+# back. The Secret is adopted on a reinstall under the same release name and
+# namespace, and fails loudly under a different one -- correct, since the
+# volume answers to the password in that Secret. Valkey and NATS need no
+# equivalent: both read their password from their Secret at every boot, so a
+# regenerated one stays self-consistent. Only Postgres writes the credential
+# into persistent storage.
+#
+# The cost is stated rather than hidden: uninstall now leaves a Secret
+# holding credentials behind, exactly as it already leaves the PVC holding the
+# rows. Deleting the namespace reclaims both together.
+#
+version: 0.8.17
 appVersion: "0.1.0"
 keywords:
   - kubexa

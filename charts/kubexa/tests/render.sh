@@ -99,6 +99,16 @@ assert_bundled_postgres() {
     || { fail "$profile: the init script does not create kubexa_app"; return; }
   grep -q 'CREATE DATABASE kubexa_users' <<< "$out" \
     || { fail "$profile: the init script does not create kubexa_users"; return; }
+  # The auth Secret must outlive the release, because the password it holds is
+  # part of the data on data-kubexa-postgres-0, not part of the release.
+  # Without this annotation `helm uninstall` deletes the Secret, leaves the PVC
+  # Bound, and the next install generates passwords the surviving roles do not
+  # have -- measured on 2026-10-12: STATUS deployed, --wait exit 0, six pods
+  # Ready, and FATAL: password authentication failed on the first connection
+  # over the Service. The probe is `pg_isready -h 127.0.0.1`, which the image's
+  # pg_hba answers over a trust line, so nothing in the install can see it.
+  grep -q 'helm.sh/resource-policy: keep' <<< "$out" \
+    || { fail "$profile: the postgres auth Secret is not kept across uninstall"; return; }
   ok "$profile: bundled postgres"
 }
 
