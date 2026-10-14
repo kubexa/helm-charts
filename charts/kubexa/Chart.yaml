@@ -511,7 +511,86 @@ type: application
 # holding credentials behind, exactly as it already leaves the PVC holding the
 # rows. Deleting the namespace reclaims both together.
 #
-version: 0.8.17
+# 0.8.18 is the first umbrella that can be installed on an arm64 node, and
+# getting there took five images rather than three. It moves kubexa-apiserver
+# to 0.4.68 and kubexa-agentserver to 0.2.50 (both on image 0.5.60),
+# kubexa-consumer to 0.1.4 (image 0.2.3), kubexa-app to 0.1.68 (image 0.2.65),
+# and backup.image to 0.2.2.
+#
+# No template, no value shape and no migration changes. Every one of those
+# image bumps is the SAME SOURCE rebuilt for a second platform: between the old
+# and new tag of each, the only files that moved are Dockerfiles and release
+# workflows. Nothing about an amd64 install differs -- this is reach, not
+# behaviour.
+#
+# Why two of them were nearly missed. All five Kubexa Dockerfiles and release
+# workflows were fixed on 2026-10-13, and only kubexa-backend cut a tag
+# afterwards. kubexa-app v0.2.64 and kubexa-consumer v0.2.2 were ancestors of
+# their own multi-arch commits, and both release workflows fire on
+# `tags: ["v*"]`, so the images an install would pull were still amd64-only:
+#
+#   ghcr.io/kubexa/kubexa-app:0.2.64        linux/amd64        <-- before
+#   ghcr.io/kubexa/kubexa-consumer:0.2.2    linux/amd64        <-- before
+#
+# A fixed Dockerfile publishes nothing. The check that found it, and the only
+# one that can: render this chart and inspect EVERY image it names against the
+# registry. Reading a component repo answers "will its next release be
+# multi-arch", never "is the image an install pulls multi-arch". The first
+# draft of this very note claimed the install was arm64-ready while those two
+# were still amd64 -- and a published chart version cannot be withdrawn from
+# GHCR, so that sentence would have been permanent and false.
+#
+# backup.image 0.2.2 embeds the same migration ceiling as 0.2.1 -- app 0125,
+# users 0133, read off the OCI labels of BOTH children -- so the restore
+# ceiling does not move and an archive taken under 0.8.17 stays restorable.
+#
+# Do not read "the manifest lists linux/arm64" as proof. An index that claims
+# arm64 while holding an x86-64 binary is invisible to every runtime check on a
+# Mac (Rosetta runs it and it prints its version) and is `exec format error` on
+# a real arm64 node. Two of the five Dockerfiles were in exactly that state
+# before 2026-10-13. Verification means pulling each child and reading the ELF.
+#
+# INSTALLED AND LOGGED INTO BEFORE PUBLISHING, which is the only reason the
+# first sentence of this note is allowed to exist. 2026-10-14, a throwaway
+# k3d/k3s v1.36.4+k3s1 cluster on an Apple Silicon Mac, both nodes reporting
+# architecture `arm64` -- real nodes, not the emulated amd64 node that cannot
+# start a single pod sandbox. All eleven pods Ready. Measured:
+#
+#   migrations          app goose 125, users goose 133 (the embedded ceilings)
+#   databases           kubexa_app owner=kubexa_app, kubexa_users owner=kubexa_users
+#   /readyz             gateway, loki, postgres-app, postgres-users, redis all ok
+#   POST /auth/login    HTTP 200 + tokens; a wrong password returns 401
+#   GET  /whoami        HTTP 200, roles [superadmin], permissions [*:*]; no token 401
+#   uname -m            aarch64 inside the containers
+#
+# This is A0.2 Task 9's acceptance criterion, open since the chart made these
+# stores default-on in 0.6.0, and the first time the Kubexa components have run
+# on arm64 at all. Each positive reading above has a negative control, because
+# a 200 with no 401 beside it does not distinguish an authentication from an
+# open door.
+#
+# ONE THING TO EXPECT ON A SLOW CONNECTION, and it is not this chart's fault.
+# `helm install --wait --timeout 25m` reported the release FAILED at 10m52s --
+# "Deployment/kubexa-apiserver not ready ... Progress deadline exceeded" --
+# while every pod went Ready about a minute later and the install has been
+# healthy since. `--timeout` does NOT raise a Deployment's own
+# progressDeadlineSeconds, which is 600s by default, and `--wait` watches
+# exactly that condition. Here `postgres:17-alpine` took 8m11s to pull, so the
+# apiserver's migrate initContainer backed off for eight minutes and the
+# Deployment never progressed inside its own 600s. Proven by re-applying the
+# identical chart with the images cached: `STATUS: deployed` in 5.7 s. If you
+# see this, pre-pull the images or raise progressDeadlineSeconds; do not read
+# it as a broken install, and do check the pods before concluding anything.
+#
+# kubexa-agent is NOT a dependency of this chart -- it installs into the
+# customer's cluster -- and it moved in the same pass, to 0.11.1. That is the
+# one that matters commercially: amd64-only meant an arm64 node pool
+# (Graviton, Ampere) could not be monitored at all.
+#
+# Rolling back to 0.8.17 is safe on amd64 and reinstates an install that cannot
+# schedule on arm64.
+#
+version: 0.8.18
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -1182,7 +1261,25 @@ dependencies:
     # which the two KubexaSessionGate* rules added in umbrella 0.8.9 read --
     # they move together for that reason. Migration 0133 runs in the users
     # database. Pairs with agentserver 0.2.48; the app does not move.
-    version: "0.4.67"
+    #
+    # 0.4.67 carries image 0.5.59 and was pinned here without a note. It adds
+    # one subcommand to the image's SECOND binary and nothing else:
+    # `/kubexa-migrate --db=<set> --from=N plan`, which reports what this build
+    # would apply on top of version N and whether each step can be undone. It
+    # opens no database connection and reads no config, so an image can be
+    # interrogated before it is installed -- and it is the first image
+    # docs/operations/upgrade.md can be run against, because that runbook's
+    # section 1 asks the TARGET image for the window. No running process
+    # behaves differently. users 133 / app 125, unchanged.
+    #
+    # 0.4.68 carries image 0.5.60, the first kubexa-backend published as a
+    # multi-arch index (linux/amd64 + linux/arm64). No Go, SQL or go.mod change
+    # since 0.5.59 -- only Dockerfile, Dockerfile.backup and two workflows
+    # moved -- so the amd64 binary is the same build 0.4.67 carried. users 133 /
+    # app 125; the window from 0.5.59 is empty for both sets. Pairs with
+    # agentserver 0.2.50. It also retires a sentence in 0.4.67's own note in the
+    # component chart, which told ARM users to pass `--platform linux/amd64`.
+    version: "0.4.68"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -1479,7 +1576,16 @@ dependencies:
     # 0.2.48 carries image 0.5.58 and changes nothing in the agentserver; it moves
     # with the apiserver so both run one image. Session revocation is entirely
     # an apiserver concern -- the backend change touched no agentserver path.
-    version: "0.2.49"
+    #
+    # 0.2.49 carries image 0.5.59 and changes nothing in the agentserver; it
+    # moves with the apiserver so both run one image. 0.5.59's only addition is
+    # a subcommand on the migrate binary, which no agentserver path calls.
+    #
+    # 0.2.50 carries image 0.5.60 and changes nothing in the agentserver; it
+    # moves with the apiserver so both run one image. 0.5.60 changes no Go code
+    # at all -- it is the same amd64 build published as a multi-arch index, so
+    # this is the first agentserver that can be scheduled on an arm64 node.
+    version: "0.2.50"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
@@ -1508,7 +1614,13 @@ dependencies:
     # metric series ceiling. It reads the ceiling from the two columns
     # apiserver 0.4.22's migration 0083 creates. Needs config.usersDb, which
     # this chart already wires for the namespace cache.
-    version: "0.1.3"
+    #
+    # 0.1.4 carries image 0.2.3, which is 0.2.2's code built for linux/arm64 as
+    # well. No Go or go.mod change; only Dockerfile and the release workflow
+    # moved. Its Dockerfile had `ARG TARGETARCH=amd64`, and a default SHADOWS
+    # BuildKit's value, so adding `platforms:` alone would have published an
+    # arm64 child holding an x86-64 binary.
+    version: "0.1.4"
     repository: oci://ghcr.io/kubexa/charts
     condition: consumer.enabled
   - name: kubexa-app
@@ -2159,6 +2271,11 @@ dependencies:
     # flow as ordinary documents outside it. Desktop is unchanged, proven by
     # dumping every element's geometry before and after. No template change and
     # no contract change, so it pairs with any apiserver and moves on its own.
-    version: "0.1.67"
+    #
+    # 0.1.68 carries image 0.2.65, which is 0.2.64's bundle built for
+    # linux/arm64 as well. Not a line of TypeScript, CSS or package-lock.json
+    # differs. Cheap for this image: the node stage emits
+    # architecture-independent JS, so BuildKit runs it once for both children.
+    version: "0.1.68"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled

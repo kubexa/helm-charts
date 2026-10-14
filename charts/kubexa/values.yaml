@@ -1413,7 +1413,17 @@ backup:
   # the install before trusting a backup. ci.yml's backup-image-drift job fails
   # a BACKEND release whose migrations have outrun the newest backup-v* tag, so
   # the gap should not reopen -- but this value still has to be moved by hand.
-  image: ghcr.io/kubexa/kubexa-backup:0.2.1
+  #
+  # 0.2.2 is 0.2.1 published as a multi-arch index (linux/amd64 + linux/arm64),
+  # which is the only reason to move: the CronJob could not be scheduled on an
+  # arm64 node before it. The ceiling does NOT move -- both children carry
+  # dev.kubexa.migrations.app=0125 and .users=0133, the same pair 0.2.1 carries
+  # -- so an archive taken under 0.2.1 restores under 0.2.2 and vice versa.
+  # Read the labels per child, not off the index:
+  #
+  #   docker buildx imagetools inspect ghcr.io/kubexa/kubexa-backup:0.2.2 \
+  #     --format '{{ json .Image }}'
+  image: ghcr.io/kubexa/kubexa-backup:0.2.2
   imagePullPolicy: IfNotPresent
   workDir:
     sizeLimit: 10Gi
