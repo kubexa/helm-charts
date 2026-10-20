@@ -603,7 +603,21 @@ type: application
 # valid (the user row is in the database, not the chart), so a rollback only
 # removes the ability to run the wizard on a NEW install.
 #
-version: 0.8.19
+# 0.8.20 is NOTES.txt only -- no template, no dependency, no value changes --
+# and it exists because the live acceptance of 0.8.19 found the wizard
+# undiscoverable from the install path operators actually use. Helm does not
+# render a subchart's NOTES unless you pass --render-subchart-notes, so
+# everything kubexa-apiserver's NOTES says about the setup token and /setup was
+# invisible to anyone installing this umbrella: a real install printed the
+# component list and the telemetry notes, and nothing whatsoever about the
+# account needed to log in. The first-administrator step is now stated here, in
+# both shapes (wizard or seeded), with the app URL filled in from the ingress
+# host when there is one. It also names the failure that same acceptance run hit
+# -- a bootstrap password containing the email's local part is refused by the
+# password policy, which fails BOOT rather than being skipped, so the apiserver
+# crash-loops while `helm install` still reports "deployed".
+#
+version: 0.8.20
 appVersion: "0.1.0"
 keywords:
   - kubexa

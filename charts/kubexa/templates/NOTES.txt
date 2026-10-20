@@ -81,6 +81,60 @@ agentserver.fullnameOverride -- update this address to match it.
 {{- end }}
 {{- end }}
 
+{{- if .Values.apiserver.enabled }}
+{{- /*
+Helm does not render a subchart's NOTES.txt unless the operator passes
+--render-subchart-notes, so everything the kubexa-apiserver chart says about
+the first administrator is invisible to anyone installing this umbrella --
+which is how the platform is actually installed. A live install of 0.8.19
+confirmed it: the operator saw the component list and the telemetry notes, and
+nothing at all about the account they need in order to log in. So the first
+step is repeated here rather than delegated.
+
+.Values.apiserver.bootstrap is nil in THIS chart's values -- the subchart's own
+defaults are not visible to the parent -- so it is read through a default dict.
+*/}}
+{{- $bs := (.Values.apiserver.bootstrap | default dict) }}
+{{- $seeded := and (trim ($bs.superadminEmail | toString) | ne "") ($bs.superadminPassword | toString | ne "") }}
+
+First administrator:
+{{- if $seeded }}
+  apiserver.bootstrap.superadminEmail is set, so boot created that superadmin
+  and the browser wizard is closed for good. Log in at
+  {{ if and .Values.app.enabled .Values.app.ingress.enabled .Values.app.ingress.host }}http{{ if .Values.app.ingress.tls.enabled }}s{{ end }}://{{ .Values.app.ingress.host }}/login{{ else }}the app's /login{{ end }}
+  with "{{ $bs.superadminEmail }}".
+
+  If the apiserver pod is in CrashLoopBackOff instead, read its log before
+  anything else: the bootstrap password is judged by the SAME policy as a
+  user-chosen one, and a rejected password fails boot rather than being
+  skipped. A password containing the email's local part is the common case --
+  "seed@..." with a password containing "seed" is refused -- and `helm install`
+  reports "deployed" regardless, because the pod never becoming Ready is not
+  something Helm waits for without --wait.
+{{- else }}
+  No password was put in values, so if this install has no account yet the
+  first superadmin is created through the browser. Read the setup token:
+
+    kubectl -n {{ .Release.Namespace }} get secret {{ .Release.Name }}-apiserver-keys \
+      -o jsonpath='{.data.setup-token}' | base64 -d
+
+{{- if .Values.app.enabled }}
+
+  then open {{ if and .Values.app.ingress.enabled .Values.app.ingress.host }}http{{ if .Values.app.ingress.tls.enabled }}s{{ end }}://{{ .Values.app.ingress.host }}/setup{{ else }}/setup in the app{{ end }} and enter it.
+{{- else }}
+
+  app is disabled here, so there is no wizard screen to open. POST the token
+  to /api/v1/setup/admin yourself with token, email, password and
+  display_name, or enable the app and use the screen.
+{{- end }}
+
+  The wizard closes permanently the moment one account exists -- the token then
+  answers 404 like any wrong one, which is also what a replay of the correct
+  token gets. Nothing re-opens it except an empty users table.
+{{- end }}
+{{- end }}
+
+
 Next steps -- a successful `helm install`/`--wait` only proves every enabled
 Deployment/StatefulSet became Ready. It does NOT prove telemetry is actually
 flowing end to end: the consumer's `/readyz` gates on nats, writers, registry
