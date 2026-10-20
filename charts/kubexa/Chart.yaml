@@ -590,7 +590,20 @@ type: application
 # Rolling back to 0.8.17 is safe on amd64 and reinstates an install that cannot
 # schedule on arm64.
 #
-version: 0.8.18
+# 0.8.19 bundles the first-administrator setup wizard: apiserver 0.4.71,
+# agentserver 0.2.52 and app 0.1.69 (kubexa-consumer 0.1.4 does not move --
+# nothing in this feature touches it). A fresh install can now be completed
+# without ever putting a password in values.yaml. There is deliberately no
+# umbrella-level passthrough for bootstrap.setupToken: the default generates a
+# working token, and a hidden subchart key only hurts when someone has to set
+# it.
+#
+# Rolling back to 0.8.18 is safe -- it reinstates the seeded-account install --
+# but note what it costs: an install made through the wizard under 0.8.19 stays
+# valid (the user row is in the database, not the chart), so a rollback only
+# removes the ability to run the wizard on a NEW install.
+#
+version: 0.8.19
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -1279,7 +1292,24 @@ dependencies:
     # app 125; the window from 0.5.59 is empty for both sets. Pairs with
     # agentserver 0.2.50. It also retires a sentence in 0.4.67's own note in the
     # component chart, which told ARM users to pass `--platform linux/amd64`.
-    version: "0.4.68"
+    #
+    # 0.4.71 carries image 0.5.62, the first kubexa-backend with the
+    # first-administrator setup wizard: GET /api/v1/setup/status and
+    # POST /api/v1/setup/admin, both unauthenticated, both closed forever once
+    # one user row exists. The chart adds a `setup-token` key to its Secret and
+    # a KUBEXA_APISERVER_SETUP_TOKEN env var to the Deployment; with no
+    # bootstrap.superadminEmail/Password set, the install now ends with an
+    # operator-driven wizard instead of a seeded account. No migration, no new
+    # module and no new permission, so the users/app schema sets are unchanged
+    # from 0.4.68 -- users 133 / app 125, the same highest migration in each set
+    # that 0.4.68 carried. Pairs with agentserver 0.2.52 and app 0.1.69.
+    #
+    # DO NOT INSTALL 0.4.70. Its appVersion is 0.5.61, and that image was never
+    # built: the v0.5.61 tag's CI run failed in the `unit` job at the
+    # generated-file drift gate, and the `docker` job is gated on `unit`, so the
+    # chart published while the image it names does not exist. 0.4.71 is 0.4.70
+    # with the drift fixed and appVersion moved to 0.5.62.
+    version: "0.4.71"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -1585,7 +1615,13 @@ dependencies:
     # moves with the apiserver so both run one image. 0.5.60 changes no Go code
     # at all -- it is the same amd64 build published as a multi-arch index, so
     # this is the first agentserver that can be scheduled on an arm64 node.
-    version: "0.2.50"
+    #
+    # 0.2.52 carries image 0.5.62 and changes nothing in the agentserver; it
+    # moves with the apiserver so both run one image. The wizard is an apiserver
+    # HTTP concern and no agentserver path calls it. DO NOT INSTALL 0.2.51
+    # either, for the same reason as apiserver 0.4.70 -- it names the never-built
+    # 0.5.61.
+    version: "0.2.52"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
@@ -2276,6 +2312,13 @@ dependencies:
     # linux/arm64 as well. Not a line of TypeScript, CSS or package-lock.json
     # differs. Cheap for this image: the node stage emits
     # architecture-independent JS, so BuildKit runs it once for both children.
-    version: "0.1.68"
+    #
+    # 0.1.69 carries image 0.2.66, which adds the /setup route and the wizard
+    # form, and a boot-time probe of /setup/status that decides whether /login
+    # redirects to it. No template and no contract change. It is what makes
+    # apiserver 0.4.71's NOTES actionable: the apiserver's NOTES tells the
+    # operator to open the wizard in the browser, and this is the first app
+    # build that has a page there.
+    version: "0.1.69"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
