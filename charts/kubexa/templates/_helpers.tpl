@@ -52,6 +52,17 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 kubexa-backup
 {{- end }}
 
+{{- define "kubexa.preflightLabels" -}}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+app.kubernetes.io/name: kubexa-preflight
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{- define "kubexa.preflightFullname" -}}
+kubexa-preflight
+{{- end }}
+
 {{/*
 Parses a Kubernetes resource-quantity string (the shape
 nats.config.jetstream.fileStore.pvc.size/.maxSize uses -- "16Gi", "500M", or
@@ -107,15 +118,4 @@ actually supported, rather than computing a byte count that quietly lies.
 {{- fail (printf "kubexa.bytesFromQuantity: %q is not a supported quantity form. Supported: a bare non-negative byte count, or one with a Ki/Mi/Gi/Ti (binary) or K/M/G/T (decimal) suffix. Ei/E and larger are intentionally unsupported -- see the comment above this template." $orig) -}}
 {{- end -}}
 {{- end -}}
-{{- end }}
-
-{{- define "kubexa.preflightLabels" -}}
-helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
-app.kubernetes.io/name: kubexa-preflight
-app.kubernetes.io/instance: {{ .Release.Name }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
-{{- end }}
-
-{{- define "kubexa.preflightFullname" -}}
-kubexa-preflight
 {{- end }}

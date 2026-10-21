@@ -17,15 +17,15 @@ rules:
   # the resources check
   - apiGroups: [""]
     resources: ["nodes"]
-    verbs: ["get", "list"]
+    verbs: ["list"]
   # the storage class check
   - apiGroups: ["storage.k8s.io"]
     resources: ["storageclasses"]
-    verbs: ["get", "list"]
+    verbs: ["list"]
   # the ingress class check
   - apiGroups: ["networking.k8s.io"]
     resources: ["ingressclasses"]
-    verbs: ["get", "list"]
+    verbs: ["list"]
   # the ingress check's address collection, which the dns check compares against
   - apiGroups: [""]
     resources: ["services"]
@@ -73,8 +73,11 @@ rules:
   # the namespace check (an existing helm release, name collisions) and the
   # certificate check (a pre-provisioned TLS secret)
   - apiGroups: [""]
-    resources: ["secrets", "configmaps", "services"]
+    resources: ["secrets"]
     verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["configmaps", "services"]
+    verbs: ["list"]
   # the namespace check's name collisions
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets"]
