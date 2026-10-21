@@ -1,0 +1,174 @@
+{{- if .Values.preflight.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.preflight.serviceAccount.name }}
+  labels:
+    {{- include "kubexa.preflightLabels" . | nindent 4 }}
+{{- if .Values.preflight.rbac.create }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kubexa.preflightFullname" . }}-{{ .Release.Namespace }}
+  labels:
+    {{- include "kubexa.preflightLabels" . | nindent 4 }}
+rules:
+  # the resources check
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+  # the storage class check
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list"]
+  # the ingress class check
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingressclasses"]
+    verbs: ["get", "list"]
+  # the ingress check's address collection, which the dns check compares against
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["list"]
+  # the certificate issuer check: is cert-manager installed at all
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get"]
+  # the certificate issuer check: the named ClusterIssuer's Ready condition
+  - apiGroups: ["cert-manager.io"]
+    resources: ["clusterissuers"]
+    verbs: ["get"]
+  # the Kubernetes version check; /version is a non-resource URL, and the
+  # cluster's built-in system:public-info-viewer binding usually grants it
+  # already -- this makes the dependency explicit rather than inherited
+  - nonResourceURLs: ["/version"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kubexa.preflightFullname" . }}-{{ .Release.Namespace }}
+  labels:
+    {{- include "kubexa.preflightLabels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kubexa.preflightFullname" . }}-{{ .Release.Namespace }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.preflight.serviceAccount.name }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kubexa.preflightFullname" . }}
+  labels:
+    {{- include "kubexa.preflightLabels" . | nindent 4 }}
+rules:
+  # the storage check's live PVC proof, and clearing the volumes a killed Job left
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "create", "delete"]
+  # the namespace check (an existing helm release, name collisions) and the
+  # certificate check (a pre-provisioned TLS secret)
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps", "services"]
+    verbs: ["get", "list"]
+  # the namespace check's name collisions
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["list"]
+  # the namespace check's PodSecurity admission labels
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get"]
+  # the certificate issuer check, when the render names a namespaced Issuer
+  - apiGroups: ["cert-manager.io"]
+    resources: ["issuers"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kubexa.preflightFullname" . }}
+  labels:
+    {{- include "kubexa.preflightLabels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kubexa.preflightFullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.preflight.serviceAccount.name }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "kubexa.preflightFullname" . }}
+  labels:
+    {{- include "kubexa.preflightLabels" . | nindent 4 }}
+spec:
+  # 0, not the default 6: a retry would re-run the live PVC proof and print a
+  # second report under the first, and an operator reading `kubectl logs`
+  # would see two interleaved answers.
+  backoffLimit: 0
+  activeDeadlineSeconds: {{ .Values.preflight.activeDeadlineSeconds }}
+  # No ttlSecondsAfterFinished on purpose: a Job that deletes itself takes its
+  # logs with it, and the logs ARE the deliverable. The operator deletes it.
+  template:
+    metadata:
+      labels:
+        {{- include "kubexa.preflightLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ .Values.preflight.serviceAccount.name }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: preflight
+          image: "{{ .Values.preflight.image.repository }}:{{ .Values.preflight.image.tag }}"
+          command: ["/kubexa-preflight"]
+          args:
+            - --release=/etc/kubexa-preflight/release.yaml
+            - --pvc-timeout={{ printf "%ds" (int .Values.preflight.pvcTimeoutSeconds) }}
+            {{- with .Values.preflight.pvcProbeSize }}
+            - --pvc-probe-size={{ . }}
+            {{- end }}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+          volumeMounts:
+            - name: release
+              mountPath: /etc/kubexa-preflight
+              readOnly: true
+      volumes:
+        - name: release
+          secret:
+            secretName: kubexa-preflight-release
+            # optional, and this is load-bearing: without it a missing Secret
+            # blocks the pod from starting, and the "no rendered release"
+            # report -- the one that must work when the operator skips the
+            # render step -- could never be produced.
+            optional: true
+{{- end }}

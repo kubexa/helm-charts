@@ -108,3 +108,14 @@ actually supported, rather than computing a byte count that quietly lies.
 {{- end -}}
 {{- end -}}
 {{- end }}
+
+{{- define "kubexa.preflightLabels" -}}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+app.kubernetes.io/name: kubexa-preflight
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{- define "kubexa.preflightFullname" -}}
+kubexa-preflight
+{{- end }}
