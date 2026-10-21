@@ -197,10 +197,17 @@ assert_preflight_objects() {
   # blocks the pod from starting and the "no rendered release" report can
   # never be produced. It is one word in a volume, so it gets its own
   # assertion rather than riding along with the Job's existence.
-  if grep -qE '^[[:space:]]+optional: true$' <<< "$doc"; then
+  # Counted, not merely found: checked across the whole document, a second
+  # optional: true elsewhere would keep this green after the input Secret
+  # volume lost its own.
+  # "|| true": grep -c exits 1 when the count is 0, which under set -e kills
+  # the whole suite silently instead of reporting a failure. Measured.
+  local opts
+  opts=$(grep -cE '^[[:space:]]+optional: true$' <<< "$doc" || true)
+  if [ "$opts" = "1" ]; then
     ok "$profile: the input secret volume is optional"
   else
-    fail "$profile: the input secret volume is NOT optional -- a missing Secret would block the pod and suppress the no-input report"
+    fail "$profile: expected exactly one 'optional: true' (the input Secret volume) and found $opts -- without it a missing Secret would block the pod and suppress the no-input report"
   fi
   if grep -qE '^[[:space:]]+backoffLimit: 0$' <<< "$doc"; then
     ok "$profile: backoffLimit is 0"
@@ -243,7 +250,7 @@ assert_preflight_image_matches_apiserver() {
   if [ "$pf_img" = "$api_img" ]; then
     ok "$profile: preflight and apiserver run the same image ($pf_img)"
   else
-    fail "$profile: preflight runs [$pf_img] but the apiserver runs [$api_img] -- preflight.image.tag has drifted from the apiserver subchart's appVersion, so this release's render would be checked by the previous release's binary"
+    fail "$profile: preflight runs [$pf_img] but the apiserver renders [$api_img] -- either preflight.image.tag has drifted from the apiserver subchart's appVersion, or the apiserver's own container and migrate initContainer no longer agree. Whichever it is, this release's render would be checked by a different release's binary"
   fi
 }
 
@@ -253,11 +260,24 @@ assert_preflight_image_matches_apiserver() {
 assert_no_preflight_unless_asked() {
   local out=$1 profile=$2
   [ "$profile" = "preflight" ] && return 0
-  if grep -q 'kubexa-preflight' <<< "$out"; then
-    fail "$profile: the render mentions kubexa-preflight, but only the preflight profile enables it -- the enabled gate is broken and a normal install would create the Job"
-  else
-    ok "$profile: no preflight objects"
+  # Keyed on the template's own "# Source:" marker, like
+  # assert_backup_absent_by_default and for the same reason: a substring match
+  # on "kubexa-preflight" is blinded by a rename of the objects, while the
+  # marker is the template's path and cannot be renamed out from under the
+  # check. The template renders no document at all while enabled=false, so the
+  # marker's absence is the whole claim.
+  if grep -qF '# Source: kubexa/templates/preflight.yaml' <<< "$out"; then
+    fail "$profile: preflight.yaml rendered a document with preflight.enabled=false -- the enabled gate is broken and a normal install would create the Job"
+    return 0
   fi
+  # A second, separate claim: no OTHER template refers to the preflight
+  # objects either. The marker above cannot see that, and a stray reference
+  # would mean a normal install expects objects it never creates.
+  if grep -q 'kubexa-preflight' <<< "$out"; then
+    fail "$profile: preflight.yaml rendered nothing, but something else in this render names kubexa-preflight"
+    return 0
+  fi
+  ok "$profile: no preflight objects"
 }
 
 assert_backup_absent_by_default() {
