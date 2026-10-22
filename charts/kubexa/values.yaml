@@ -1497,13 +1497,14 @@ preflight:
     # default -- and a silent divergence here would run last release's checks
     # against this release's render.
     #
-    # TRAP: /kubexa-preflight is new, and no published image contains it until
-    # the backend release that builds it. This value and the apiserver
-    # subchart's appVersion must be bumped in the SAME commit as that backend
-    # release. The render assertion compares the two tags to each other, so it
-    # catches them diverging but stays silent when both lag -- and then
-    # enabling preflight starts a container that cannot start.
-    tag: "0.5.62"
+    # TRAP: this value and the apiserver subchart's appVersion must be bumped
+    # in the SAME commit. The render assertion compares the two tags to each
+    # other, so it catches them diverging but stays silent when both lag -- and
+    # an image older than 0.5.63 contains no /kubexa-preflight binary at all,
+    # so enabling preflight then starts a container that cannot start. 0.5.63
+    # is the first image that holds it; 0.5.62 and everything before it does
+    # not, which is what this value said until chart 0.8.21.
+    tag: "0.5.63"
   # How long a probe volume may take to bind before the storage check calls it
   # a failure.
   pvcTimeoutSeconds: 60

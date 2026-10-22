@@ -623,8 +623,32 @@ type: application
 # the rendered release against the live cluster and prints a PASS / FAIL / SKIP
 # report. It renders nothing unless `preflight.enabled` is set (default false),
 # so an install creates none of it, and it adds a `preflight.*` values block.
-# No dependency changes. Chart 0.8.20 has no such template; it was published
-# without it, and 0.8.21 is the first version that carries it.
+# Chart 0.8.20 has no such template; it was published without it, and 0.8.21 is
+# the first version that carries it.
+#
+# It also moves kubexa-apiserver to 0.4.72, so the namespace runs image 0.5.63
+# -- the first kubexa-backend that contains the /kubexa-preflight binary at
+# all. That is not a convenience: the Job runs the apiserver's own image, so on
+# any earlier pin `preflight.enabled=true` produces a container that cannot
+# start. tests/render.sh compares preflight.image.tag against the image the
+# apiserver pin renders, and that assertion is the reason the two cannot drift.
+#
+# KNOWN, AND DELIBERATE: this is the first umbrella whose two kubexa-backend
+# processes run DIFFERENT image tags. apiserver and the preflight Job are on
+# 0.5.63; kubexa-agentserver stays pinned at 0.2.52, whose appVersion is
+# 0.5.62. It is safe here and the reason is specific rather than general:
+# `git diff v0.5.62..v0.5.63` touches no .go file outside the new
+# internal/preflight and cmd/preflight packages, and its only go.mod change
+# moves k8s.io/apimachinery from indirect to direct at the same version. The
+# agentserver binary in 0.5.63 is built from identical source to the one in
+# 0.5.62, so the two tags name the same agentserver.
+#
+# Do not read this as licence to let them drift again. 0.7.13 exists because
+# the agentserver had silently fallen four releases behind, and that was found
+# only by rendering this chart and reading the two image lines side by side --
+# which is still the only check that looks at both at once. tests/render.sh
+# asserts preflight against apiserver and nothing asserts agentserver against
+# either, so the next divergence will be just as quiet as that one was.
 version: 0.8.21
 appVersion: "0.1.0"
 keywords:
@@ -1331,7 +1355,18 @@ dependencies:
     # generated-file drift gate, and the `docker` job is gated on `unit`, so the
     # chart published while the image it names does not exist. 0.4.71 is 0.4.70
     # with the drift fixed and appVersion moved to 0.5.62.
-    version: "0.4.71"
+    #
+    # 0.4.72 carries image 0.5.63, the first kubexa-backend that contains a
+    # THIRD binary: /kubexa-preflight, the install check this umbrella's
+    # templates/preflight.yaml runs. No template, Go, SQL or go.mod change
+    # reaches a running process -- the apiserver and migrate binaries are the
+    # same builds 0.4.71 carried, and users 133 / app 125 are unchanged. It is
+    # pinned here because the preflight Job runs THIS image: until 0.5.63 no
+    # published image held the binary, so enabling preflight on any earlier pin
+    # starts a container that cannot start. tests/render.sh asserts
+    # preflight.image.tag equals the image this pin renders, which is why the
+    # two move in one commit.
+    version: "0.4.72"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
