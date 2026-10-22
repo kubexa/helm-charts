@@ -165,6 +165,121 @@ assert_vmalert_rules() {
   done
 }
 
+# The preflight profile is the only one that renders these. Herestrings, not
+# pipes: see assert_bundled_vm for the SIGPIPE/pipefail mechanism this avoids.
+#
+# extract_source returns ALL SIX documents of preflight.yaml as one blob: Helm
+# writes one `# Source:` marker per document, so a six-document template has six
+# identical consecutive markers and the awk keeps grabbing across them. No other
+# umbrella template is multi-document, so do not assume it returns one object.
+#
+# The property greps are anchored to a YAML key at the start of a line, because
+# the template's own comments name these same words (ttlSecondsAfterFinished,
+# optional) and Helm passes comments through to the render.
+assert_preflight_objects() {
+  local out=$1 profile=$2
+  [ "$profile" = "preflight" ] || return 0
+  local doc
+  doc=$(extract_source "$out" "kubexa/templates/preflight.yaml")
+  if [ -z "$doc" ]; then
+    fail "$profile: no preflight.yaml document found in the render"
+    return 0
+  fi
+  local kind
+  for kind in ServiceAccount ClusterRole ClusterRoleBinding Role RoleBinding Job; do
+    if grep -q "^kind: $kind\$" <<< "$doc"; then
+      ok "$profile: preflight renders a $kind"
+    else
+      fail "$profile: preflight renders no $kind"
+    fi
+  done
+  # The optional flag is load-bearing: without it a missing input Secret
+  # blocks the pod from starting and the "no rendered release" report can
+  # never be produced. It is one word in a volume, so it gets its own
+  # assertion rather than riding along with the Job's existence.
+  # Counted, not merely found: checked across the whole document, a second
+  # optional: true elsewhere would keep this green after the input Secret
+  # volume lost its own.
+  # "|| true": grep -c exits 1 when the count is 0, which under set -e kills
+  # the whole suite silently instead of reporting a failure. Measured.
+  local opts
+  opts=$(grep -cE '^[[:space:]]+optional: true$' <<< "$doc" || true)
+  if [ "$opts" = "1" ]; then
+    ok "$profile: the input secret volume is optional"
+  else
+    fail "$profile: expected exactly one 'optional: true' (the input Secret volume) and found $opts -- without it a missing Secret would block the pod and suppress the no-input report"
+  fi
+  if grep -qE '^[[:space:]]+backoffLimit: 0$' <<< "$doc"; then
+    ok "$profile: backoffLimit is 0"
+  else
+    fail "$profile: backoffLimit is not 0 -- a retry would re-run the live PVC proof and print a second report"
+  fi
+  if grep -qE '^[[:space:]]*ttlSecondsAfterFinished:' <<< "$doc"; then
+    fail "$profile: the Job sets ttlSecondsAfterFinished -- it would delete itself and take its logs, which are the deliverable, with it"
+  else
+    ok "$profile: no ttlSecondsAfterFinished"
+  fi
+}
+
+# The preflight image must equal the apiserver's in the SAME render. The two
+# come from independent sources -- preflight.image.tag in this chart's values,
+# and the apiserver subchart's own default via its appVersion -- so this is a
+# real comparison rather than a tautology. It is here rather than in a
+# reviewer's memory because this repo has already run two components on two
+# different images for four releases.
+#
+# The subchart is pulled under the alias `apiserver`, and Helm writes the alias
+# into the Source marker. The deployment carries two image: lines (the
+# container and the migrate initContainer); sort -u collapses them while they
+# agree, and if they ever diverge the comparison fails, which is right.
+assert_preflight_image_matches_apiserver() {
+  local out=$1 profile=$2
+  [ "$profile" = "preflight" ] || return 0
+  local pf api pf_img api_img
+  pf=$(extract_source "$out" "kubexa/templates/preflight.yaml")
+  api=$(extract_source "$out" "kubexa/charts/apiserver/templates/deployment.yaml")
+  pf_img=$(grep -E '^[[:space:]]+image:' <<< "$pf" | awk '{print $2}' | tr -d '"' | sort -u)
+  api_img=$(grep -E '^[[:space:]]+image:' <<< "$api" | awk '{print $2}' | tr -d '"' | sort -u)
+  # One line per value so a multi-valued side reads as a list, not a broken sentence.
+  pf_img=${pf_img//$'\n'/ | }
+  api_img=${api_img//$'\n'/ | }
+  if [ -z "$pf_img" ] || [ -z "$api_img" ]; then
+    fail "$profile: could not read both images (preflight=[$pf_img] apiserver=[$api_img])"
+    return 0
+  fi
+  if [ "$pf_img" = "$api_img" ]; then
+    ok "$profile: preflight and apiserver run the same image ($pf_img)"
+  else
+    fail "$profile: preflight runs [$pf_img] but the apiserver renders [$api_img] -- either preflight.image.tag has drifted from the apiserver subchart's appVersion, or the apiserver's own container and migrate initContainer no longer agree. Whichever it is, this release's render would be checked by a different release's binary"
+  fi
+}
+
+# Every OTHER profile must render no preflight at all. This is the assertion
+# that would catch a dropped `enabled` gate, which would otherwise ship the
+# Job into every install silently.
+assert_no_preflight_unless_asked() {
+  local out=$1 profile=$2
+  [ "$profile" = "preflight" ] && return 0
+  # Keyed on the template's own "# Source:" marker, like
+  # assert_backup_absent_by_default and for the same reason: a substring match
+  # on "kubexa-preflight" is blinded by a rename of the objects, while the
+  # marker is the template's path and cannot be renamed out from under the
+  # check. The template renders no document at all while enabled=false, so the
+  # marker's absence is the whole claim.
+  if grep -qF '# Source: kubexa/templates/preflight.yaml' <<< "$out"; then
+    fail "$profile: preflight.yaml rendered a document with preflight.enabled=false -- the enabled gate is broken and a normal install would create the Job"
+    return 0
+  fi
+  # A second, separate claim: no OTHER template refers to the preflight
+  # objects either. The marker above cannot see that, and a stray reference
+  # would mean a normal install expects objects it never creates.
+  if grep -q 'kubexa-preflight' <<< "$out"; then
+    fail "$profile: preflight.yaml rendered nothing, but something else in this render names kubexa-preflight"
+    return 0
+  fi
+  ok "$profile: no preflight objects"
+}
+
 assert_backup_absent_by_default() {
   local out=$1 profile=$2
   case "$profile" in

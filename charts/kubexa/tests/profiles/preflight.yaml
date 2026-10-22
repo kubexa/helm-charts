@@ -1,0 +1,19 @@
+# The default profile with the operator's pre-install check turned on. It
+# exists so render.sh can assert the preflight objects at all: every other
+# profile proves the opposite, that a normal install renders none of them.
+app:
+  ingress:
+    enabled: true
+    host: kubexa.example.com
+apiserver:
+  ingress:
+    enabled: true
+    host: kubexa.example.com
+  config:
+    corsAllowedOrigins:
+      - https://kubexa.example.com
+    ws:
+      origins:
+        - https://kubexa.example.com
+preflight:
+  enabled: true

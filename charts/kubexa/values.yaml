@@ -1477,3 +1477,48 @@ backup:
   resources:
     limits: { cpu: 1, memory: 1Gi }
     requests: { cpu: 100m, memory: 128Mi }
+
+# ── preflight ────────────────────────────────────────────────────────────────
+# A pre-install check the OPERATOR runs, not the chart. It is disabled by
+# default so no `helm install` or `helm upgrade` can ever create it: the Job
+# is meant to run BEFORE the release exists, and its findings are a report to
+# read, not a gate that leaves a failed release behind.
+#
+# How to run it is in docs/operations/preflight.md in the product repo; the
+# short form is: render the release, put the render in a Secret, apply this
+# template with --show-only, read the logs.
+preflight:
+  enabled: false
+  image:
+    repository: ghcr.io/kubexa/kubexa-backend
+    # Bumped with this chart's other image versions. tests/render.sh asserts
+    # this equals the apiserver's rendered image, because the two come from
+    # independent sources -- this value, and the apiserver subchart's own
+    # default -- and a silent divergence here would run last release's checks
+    # against this release's render.
+    #
+    # TRAP: this value and the apiserver subchart's appVersion must be bumped
+    # in the SAME commit. The render assertion compares the two tags to each
+    # other, so it catches them diverging but stays silent when both lag -- and
+    # an image older than 0.5.63 contains no /kubexa-preflight binary at all,
+    # so enabling preflight then starts a container that cannot start. 0.5.63
+    # is the first image that holds it; 0.5.62 and everything before it does
+    # not, which is what this value said until chart 0.8.21.
+    tag: "0.5.63"
+  # How long a probe volume may take to bind before the storage check calls it
+  # a failure.
+  pvcTimeoutSeconds: 60
+  # Probe volume size. Empty means "the largest size the render asks of each
+  # class", which is the faithful probe: a cluster that binds 1Gi may not bind
+  # 20Gi. Set it to something small to probe cheaply and knowingly less.
+  pvcProbeSize: ""
+  # The Job's own ceiling. The PVC probe is the only slow part, and it is
+  # bounded by pvcTimeoutSeconds per storage class.
+  activeDeadlineSeconds: 600
+  rbac:
+    # false lets an operator in a locked-down cluster bind the ServiceAccount
+    # themselves. The checks whose permissions are missing then report SKIP by
+    # name -- they do not pass.
+    create: true
+  serviceAccount:
+    name: kubexa-preflight
