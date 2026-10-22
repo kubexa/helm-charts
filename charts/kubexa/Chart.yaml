@@ -617,7 +617,15 @@ type: application
 # password policy, which fails BOOT rather than being skipped, so the apiserver
 # crash-loops while `helm install` still reports "deployed".
 #
-version: 0.8.20
+# 0.8.21 adds templates/preflight.yaml: a Job an operator renders with
+# `helm template --show-only templates/preflight.yaml` (with
+# `--set preflight.enabled=true`) and runs BEFORE `helm install`, which checks
+# the rendered release against the live cluster and prints a PASS / FAIL / SKIP
+# report. It renders nothing unless `preflight.enabled` is set (default false),
+# so an install creates none of it, and it adds a `preflight.*` values block.
+# No dependency changes. Chart 0.8.20 has no such template; it was published
+# without it, and 0.8.21 is the first version that carries it.
+version: 0.8.21
 appVersion: "0.1.0"
 keywords:
   - kubexa
