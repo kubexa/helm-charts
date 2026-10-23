@@ -64,6 +64,40 @@ kubexa-preflight
 {{- end }}
 
 {{/*
+The self-test's own name.
+*/}}
+{{- define "kubexa.selftestFullname" -}}
+kubexa-selftest
+{{- end }}
+
+{{/*
+A subchart's fullname, rebuilt from the PARENT's context.
+
+This does NOT call "kubexa-apiserver.fullname" and could not: a named template
+is global, but it evaluates against whatever context it is handed, and the
+parent's .Values / .Chart are the umbrella's -- so the subchart's helper would
+read the umbrella's nameOverride and chart name and return a name for a Service
+that does not exist. This is the same convention instead, fed the subchart's
+own values block (.Values.<alias>) and its alias, which is what .Chart.Name is
+inside the subchart. tests/render.sh compares the result with the rendered
+Deployments' names; that assertion is the pin, not this comment.
+
+Call with (dict "root" . "alias" "apiserver" "values" .Values.apiserver).
+*/}}
+{{- define "kubexa.subchartFullname" -}}
+{{- if .values.fullnameOverride }}
+{{- .values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $name := default .alias .values.nameOverride }}
+{{- if contains $name .root.Release.Name }}
+{{- .root.Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- printf "%s-%s" .root.Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
 Parses a Kubernetes resource-quantity string (the shape
 nats.config.jetstream.fileStore.pvc.size/.maxSize uses -- "16Gi", "500M", or
 a bare byte count) into a plain byte count, so templates/guards.yaml can

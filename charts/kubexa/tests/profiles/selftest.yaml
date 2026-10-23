@@ -1,0 +1,19 @@
+# The default profile with the operator's post-install self-test turned on. It
+# exists so render.sh can assert the self-test Job at all: every other profile
+# proves the opposite, that a normal install renders none of it.
+app:
+  ingress:
+    enabled: true
+    host: kubexa.example.com
+apiserver:
+  ingress:
+    enabled: true
+    host: kubexa.example.com
+  config:
+    corsAllowedOrigins:
+      - https://kubexa.example.com
+    ws:
+      origins:
+        - https://kubexa.example.com
+selftest:
+  enabled: true
