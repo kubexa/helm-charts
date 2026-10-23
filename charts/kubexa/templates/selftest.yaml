@@ -77,7 +77,6 @@ spec:
           imagePullPolicy: {{ .Values.selftest.image.pullPolicy }}
           command: ["/kubexa-selftest"]
           args:
-            - --namespace={{ .Release.Namespace }}
             - --apiserver-config=/etc/kubexa/apiserver/config.yaml
             - --agentserver-config=/etc/kubexa/agentserver/config.yaml
             - --apiserver-url=http://{{ $apiName }}.{{ .Release.Namespace }}.svc:{{ $apiHTTPPort }}
@@ -96,10 +95,6 @@ spec:
             - --mail-to={{ . }}
             {{- end }}
           env:
-            - name: POD_NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
             {{- if .Values.selftest.login.existingSecret }}
             # Environment only, never an argument: argv is world-readable on
             # the node, environ is not. The binary falls back to this name.
