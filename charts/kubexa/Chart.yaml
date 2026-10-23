@@ -683,7 +683,30 @@ type: application
 # on the default profile and reads both Deployments out of one render. A future
 # deliberate divergence now has to argue with a failing test instead of
 # happening silently.
-version: 0.8.22
+#
+# 0.8.23 changes no template. It moves kubexa-apiserver to 0.4.74 and
+# kubexa-agentserver to 0.2.54, so the namespace runs image 0.5.65, and it
+# moves preflight.image.tag and selftest.image.tag with them.
+#
+# What 0.5.65 fixes is the self-test this chart gained in 0.8.22: on 0.5.64 its
+# metrics lane could not report green on ANY install. The read-back route
+# validates cluster_id as a UUID, because the id reaches a PromQL matcher and
+# the type is the escaping, and the self-test's ephemeral cluster id was
+# kubexa-selftest-<nonce> -- so the route answered 400 every run, everywhere.
+# An operator who enabled selftest on 0.8.22 saw one red that was not about
+# their install. On 0.8.23 they do not.
+#
+# It also fixes two things the report SAID. A refused read-back was blamed on a
+# missing permission whatever the status, so a malformed request told its
+# reader to go and look at the RBAC seed; and the no-NATS SKIP claimed to cover
+# an unreachable broker, which is really a FAIL that names the broker. Both
+# were found by running the thing rather than by reading it.
+#
+# Found by the live acceptance of 0.8.22, which is the point of running one:
+# three defects, none of which any test in the repo would have caught, because
+# every test of that lane drove it through a fake that does not validate.
+# 0.8.23's own acceptance is ten PASS and "every check ran. exit code 0".
+version: 0.8.23
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -1400,7 +1423,7 @@ dependencies:
     # starts a container that cannot start. tests/render.sh asserts
     # preflight.image.tag equals the image this pin renders, which is why the
     # two move in one commit.
-    version: "0.4.73"
+    version: "0.4.74"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -1712,7 +1735,7 @@ dependencies:
     # HTTP concern and no agentserver path calls it. DO NOT INSTALL 0.2.51
     # either, for the same reason as apiserver 0.4.70 -- it names the never-built
     # 0.5.61.
-    version: "0.2.53"
+    version: "0.2.54"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
