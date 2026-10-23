@@ -1503,8 +1503,10 @@ preflight:
     # an image older than 0.5.63 contains no /kubexa-preflight binary at all,
     # so enabling preflight then starts a container that cannot start. 0.5.63
     # is the first image that holds it; 0.5.62 and everything before it does
-    # not, which is what this value said until chart 0.8.21.
-    tag: "0.5.63"
+    # not, which is what this value said until chart 0.8.21. Chart 0.8.22 moves
+    # this to 0.5.64 with the apiserver pin; 0.5.63 stays the floor below which
+    # the binary does not exist at all.
+    tag: "0.5.64"
   # How long a probe volume may take to bind before the storage check calls it
   # a failure.
   pvcTimeoutSeconds: 60
@@ -1540,12 +1542,16 @@ selftest:
     repository: ghcr.io/kubexa/kubexa-backend
     # Held at the same value as preflight.image.tag; they are bumped together.
     #
-    # TRAP: 0.5.63 does NOT contain /kubexa-selftest. It is the last image
-    # BEFORE the self-test; the first image that holds the binary is the
-    # release that follows it (0.5.64 or later, whichever tag the A1.3 release
-    # cuts). Until this tag moves past 0.5.63, enabling selftest starts a
-    # container whose command does not exist.
-    tag: "0.5.63"
+    # TRAP: 0.5.63 does NOT contain /kubexa-selftest. 0.5.64 is the first image
+    # that holds the binary -- that question was open when this block was
+    # written and is now settled, verified by running /kubexa-selftest --version
+    # out of the published image. On 0.5.63 or anything earlier, enabling
+    # selftest starts a container whose command does not exist.
+    #
+    # This value and the apiserver subchart's appVersion must still be bumped in
+    # the SAME commit: the render assertion compares them to each other, so it
+    # catches them diverging and stays silent when both lag.
+    tag: "0.5.64"
     pullPolicy: IfNotPresent
   # The Job's own ceiling. The binary bounds the whole run with its --timeout;
   # this is the backstop if the process itself hangs.

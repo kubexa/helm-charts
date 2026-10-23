@@ -649,7 +649,41 @@ type: application
 # which is still the only check that looks at both at once. tests/render.sh
 # asserts preflight against apiserver and nothing asserts agentserver against
 # either, so the next divergence will be just as quiet as that one was.
-version: 0.8.21
+#
+# 0.8.22 adds templates/selftest.yaml, the post-install counterpart of the
+# preflight Job 0.8.21 introduced. An operator renders it with
+# `helm template --show-only templates/selftest.yaml` (with
+# `--set selftest.enabled=true`) and runs it AFTER `helm install`: it checks
+# the installed namespace from inside the cluster and prints the same
+# PASS / FAIL / SKIP report. It renders nothing unless `selftest.enabled` is
+# set (default false), so an install creates none of it, and it adds a
+# `selftest.*` values block. Chart 0.8.21 has no such template.
+#
+# It moves kubexa-apiserver to 0.4.73 and kubexa-agentserver to 0.2.53, so both
+# run image 0.5.64 -- the first kubexa-backend that contains /kubexa-selftest
+# at all. As with preflight, that is a requirement rather than a convenience:
+# the Job runs the apiserver's own image, so on any earlier pin
+# `selftest.enabled=true` produces a container whose command does not exist.
+# tests/render.sh compares selftest.image.tag against the image the apiserver
+# pin renders, which is why the value and the pin cannot move apart.
+#
+# THE DIVERGENCE 0.8.21 OPENED IS CLOSED. That chart deliberately ran the two
+# kubexa-backend processes on different tags (apiserver 0.5.63, agentserver
+# 0.5.62) and its note argued the case for it. Here both are 0.5.64, and this
+# time the agentserver is NOT along for the ride: 0.5.64 changes
+# internal/agentserver/nats/client.go, which adds a second constructor that
+# connects without reconciling the JetStream stream, so a diagnostic cannot
+# mutate a stream it does not own. NewClient's behaviour is unchanged and a
+# test proves it.
+#
+# 0.8.21's note ended by observing that tests/render.sh asserts preflight
+# against apiserver and that NOTHING asserts the agentserver against either,
+# so the next drift would be as quiet as the one 0.7.13 exists to repair.
+# That gap is closed here too: assert_agentserver_image_matches_apiserver runs
+# on the default profile and reads both Deployments out of one render. A future
+# deliberate divergence now has to argue with a failing test instead of
+# happening silently.
+version: 0.8.22
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -1366,7 +1400,7 @@ dependencies:
     # starts a container that cannot start. tests/render.sh asserts
     # preflight.image.tag equals the image this pin renders, which is why the
     # two move in one commit.
-    version: "0.4.72"
+    version: "0.4.73"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -1678,7 +1712,7 @@ dependencies:
     # HTTP concern and no agentserver path calls it. DO NOT INSTALL 0.2.51
     # either, for the same reason as apiserver 0.4.70 -- it names the never-built
     # 0.5.61.
-    version: "0.2.52"
+    version: "0.2.53"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
