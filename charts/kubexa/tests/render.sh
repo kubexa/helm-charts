@@ -254,6 +254,216 @@ assert_preflight_image_matches_apiserver() {
   fi
 }
 
+# ── self-test assertions ────────────────────────────────────────────────────
+# All of these run against the `selftest` profile except the two that prove the
+# opposite (nothing by default, unknown key rejected). Each reads the Job and
+# the thing it must agree with from the SAME render, because the template
+# rebuilds names and ports parent-side and only a comparison against the
+# rendered Deployments proves the copy is right rather than merely plausible.
+
+# The Job's image must equal the apiserver's. Twin of the preflight assertion,
+# for the same reason: two components here once ran different images.
+assert_selftest_image_matches_apiserver() {
+  local out=$1 profile=$2
+  [ "$profile" = "selftest" ] || return 0
+  local st api st_img api_img
+  st=$(extract_source "$out" "kubexa/templates/selftest.yaml")
+  api=$(extract_source "$out" "kubexa/charts/apiserver/templates/deployment.yaml")
+  st_img=$(grep -E '^[[:space:]]+image:' <<< "$st" | awk '{print $2}' | tr -d '"' | sort -u)
+  api_img=$(grep -E '^[[:space:]]+image:' <<< "$api" | awk '{print $2}' | tr -d '"' | sort -u)
+  st_img=${st_img//$'\n'/ | }
+  api_img=${api_img//$'\n'/ | }
+  if [ -z "$st_img" ] || [ -z "$api_img" ]; then
+    fail "$profile: could not read both images (selftest=[$st_img] apiserver=[$api_img])"
+    return 0
+  fi
+  if [ "$st_img" = "$api_img" ]; then
+    ok "$profile: selftest and apiserver run the same image ($st_img)"
+  else
+    fail "$profile: selftest runs [$st_img] but the apiserver renders [$api_img] -- selftest.image.tag has drifted from the apiserver subchart's appVersion, so the binary under test is a different release from the one it tests"
+  fi
+}
+
+# The config Secret names the Job mounts must equal the ones the Deployments
+# mount. The template builds them with kubexa.subchartFullname, a COPY of each
+# subchart's fullname logic; this is the only thing that notices the copy and
+# the original part ways.
+assert_selftest_mounts_the_deployments_secrets() {
+  local out=$1 profile=$2
+  [ "$profile" = "selftest" ] || return 0
+  local st api agent
+  st=$(extract_source "$out" "kubexa/templates/selftest.yaml")
+  api=$(extract_source "$out" "kubexa/charts/apiserver/templates/deployment.yaml")
+  agent=$(extract_source "$out" "kubexa/charts/agentserver/templates/deployment.yaml")
+  local st_api st_agent dep_api dep_agent
+  # The Job's volume is keyed by its name; the Deployments' by `name: config`.
+  # The Job's volumeMounts reuse the same names, so a mountPath resets the scan.
+  st_api=$(awk '/^[[:space:]]+- name: apiserver-config$/ {g=1; next} g && /mountPath:/ {g=0} g && /secretName:/ {print $2; exit}' <<< "$st")
+  st_agent=$(awk '/^[[:space:]]+- name: agentserver-config$/ {g=1; next} g && /mountPath:/ {g=0} g && /secretName:/ {print $2; exit}' <<< "$st")
+  dep_api=$(awk '/^[[:space:]]+- name: config$/ {g=1; next} g && /secretName:/ {print $2; exit}' <<< "$api")
+  dep_agent=$(awk '/^[[:space:]]+- name: config$/ {g=1; next} g && /secretName:/ {print $2; exit}' <<< "$agent")
+  if [ -z "$st_api" ] || [ -z "$st_agent" ] || [ -z "$dep_api" ] || [ -z "$dep_agent" ]; then
+    fail "$profile: could not read all four Secret names (job apiserver=[$st_api] agentserver=[$st_agent]; deployments apiserver=[$dep_api] agentserver=[$dep_agent])"
+    return 0
+  fi
+  if [ "$st_api" = "$dep_api" ]; then
+    ok "$profile: selftest mounts the apiserver's config Secret ($st_api)"
+  else
+    fail "$profile: selftest mounts [$st_api] but the apiserver Deployment mounts [$dep_api] -- kubexa.subchartFullname no longer matches the subchart's fullname"
+  fi
+  if [ "$st_agent" = "$dep_agent" ]; then
+    ok "$profile: selftest mounts the agentserver's config Secret ($st_agent)"
+  else
+    fail "$profile: selftest mounts [$st_agent] but the agentserver Deployment mounts [$dep_agent] -- kubexa.subchartFullname no longer matches the subchart's fullname"
+  fi
+}
+
+# --agentserver-target must be the agent-facing gRPC port. Both listeners
+# register grpc_health_v1, so a target on the admin port passes the gate check
+# while the door an agent knocks on is shut. Ports are read from the rendered
+# agentserver container, not from values, and the admin port is asserted
+# against explicitly.
+assert_selftest_targets_the_agent_port() {
+  local out=$1 profile=$2
+  [ "$profile" = "selftest" ] || return 0
+  local st agent target port grpc admin
+  st=$(extract_source "$out" "kubexa/templates/selftest.yaml")
+  agent=$(extract_source "$out" "kubexa/charts/agentserver/templates/deployment.yaml")
+  target=$(grep -E '^[[:space:]]+- --agentserver-target=' <<< "$st" | head -n 1 || true)
+  port=${target##*:}
+  grpc=$(awk '/^[[:space:]]+- name: grpc$/ {g=1; next} g && /containerPort:/ {print $2; exit}' <<< "$agent")
+  admin=$(awk '/^[[:space:]]+- name: admin$/ {g=1; next} g && /containerPort:/ {print $2; exit}' <<< "$agent")
+  if [ -z "$target" ] || [ -z "$grpc" ] || [ -z "$admin" ]; then
+    fail "$profile: could not read target/ports (target=[$target] grpc=[$grpc] admin=[$admin])"
+    return 0
+  fi
+  if [ "$grpc" = "$admin" ]; then
+    fail "$profile: the agentserver's grpc and admin containerPorts are both $grpc -- this assertion cannot tell them apart"
+    return 0
+  fi
+  if [ "$port" = "$admin" ]; then
+    fail "$profile: --agentserver-target names the ADMIN port $admin -- its health server answers SERVING while the agent-facing port $grpc may be shut"
+  elif [ "$port" = "$grpc" ]; then
+    ok "$profile: --agentserver-target names the agent-facing port $grpc, not admin $admin"
+  else
+    fail "$profile: --agentserver-target port is [$port], expected the agent-facing port $grpc"
+  fi
+}
+
+# A Kubernetes Job defaults to backoffLimit 6: one failing run would become
+# seven, each publishing synthetic telemetry that cannot be deleted.
+assert_selftest_backoff_limit_zero() {
+  local out=$1 profile=$2
+  [ "$profile" = "selftest" ] || return 0
+  local st
+  st=$(extract_source "$out" "kubexa/templates/selftest.yaml")
+  if grep -qE '^[[:space:]]+backoffLimit: 0$' <<< "$st"; then
+    ok "$profile: selftest backoffLimit is 0"
+  else
+    fail "$profile: selftest backoffLimit is not 0 -- a failing run would be retried up to six times, each publishing synthetic telemetry that cannot be deleted"
+  fi
+}
+
+# An empty --apiserver-url makes four checks SKIP and the run exit 2 while
+# looking as if it ran.
+assert_selftest_apiserver_url_present() {
+  local out=$1 profile=$2
+  [ "$profile" = "selftest" ] || return 0
+  local st line val
+  st=$(extract_source "$out" "kubexa/templates/selftest.yaml")
+  line=$(grep -E '^[[:space:]]+- --apiserver-url=' <<< "$st" | head -n 1 || true)
+  val=${line#*--apiserver-url=}
+  if [ -n "$line" ] && [ -n "$val" ]; then
+    ok "$profile: --apiserver-url is set ($val)"
+  else
+    fail "$profile: --apiserver-url is missing or empty (line=[$line]) -- four checks would SKIP and the run would exit 2 while appearing to have run"
+  fi
+}
+
+# The chart reads the durable from the consumer's VALUES rather than mounting
+# its Secret, so this is the drift pin that choice depends on: compare the
+# flag with the durable name in the consumer's rendered config.
+assert_selftest_durable_matches_consumer() {
+  local out=$1 profile=$2
+  [ "$profile" = "selftest" ] || return 0
+  local st cons flag rendered
+  st=$(extract_source "$out" "kubexa/templates/selftest.yaml")
+  cons=$(extract_source "$out" "kubexa/charts/consumer/templates/secret.yaml")
+  flag=$(grep -E '^[[:space:]]+- --consumer-durable=' <<< "$st" | head -n 1 || true)
+  flag=${flag#*--consumer-durable=}
+  rendered=$(awk '/^[[:space:]]+consumer:$/ {g=1; next} g && /^[[:space:]]+name:/ {print $2; exit}' <<< "$cons" | tr -d '"')
+  if [ -z "$flag" ] || [ -z "$rendered" ]; then
+    fail "$profile: could not read both durables (flag=[$flag] consumer config=[$rendered])"
+    return 0
+  fi
+  if [ "$flag" = "$rendered" ]; then
+    ok "$profile: --consumer-durable matches the consumer's rendered durable ($flag)"
+  else
+    fail "$profile: --consumer-durable=[$flag] but the consumer's rendered config names [$rendered] -- the self-test would watch a durable that does not exist and report a dead consumer"
+  fi
+}
+
+# "One Job and no RBAC". Two claims: the self-test document holds nothing but
+# a Job, and no RBAC object anywhere in the render carries a selftest name.
+assert_selftest_has_no_rbac() {
+  local out=$1 profile=$2
+  [ "$profile" = "selftest" ] || return 0
+  local st kinds rbac
+  st=$(extract_source "$out" "kubexa/templates/selftest.yaml")
+  kinds=$(grep -E '^kind:' <<< "$st" | sort -u || true)
+  kinds=${kinds//$'\n'/ | }
+  if [ "$kinds" != "kind: Job" ]; then
+    fail "$profile: selftest.yaml renders [$kinds], expected only 'kind: Job'"
+    return 0
+  fi
+  rbac=$(awk '
+    function flush() { if (kind ~ /^(ServiceAccount|Role|RoleBinding|ClusterRole|ClusterRoleBinding)$/ && name ~ /selftest/) print kind " " name }
+    /^---$/ { flush(); kind=""; name=""; inmeta=0; next }
+    /^kind:/ { kind=$2 }
+    /^metadata:/ { inmeta=1; next }
+    /^[a-zA-Z]/ { inmeta=0 }
+    inmeta && /^  name:/ && name == "" { name=$2 }
+    END { flush() }
+  ' <<< "$out")
+  if [ -n "$rbac" ]; then
+    fail "$profile: RBAC objects named for the self-test: ${rbac//$'\n'/ | } -- the design is one Job and no RBAC"
+  else
+    ok "$profile: no ServiceAccount/Role/Binding for the self-test"
+  fi
+}
+
+# The default must render nothing for the self-test: a default-on Job holding
+# the union of the platform's credentials is a defect.
+assert_no_selftest_unless_asked() {
+  local out=$1 profile=$2
+  [ "$profile" = "selftest" ] && return 0
+  if grep -qF '# Source: kubexa/templates/selftest.yaml' <<< "$out"; then
+    fail "$profile: selftest.yaml rendered a document with selftest.enabled unset -- the self-test Job would ship into a normal install holding the platform's credentials"
+    return 0
+  fi
+  if grep -q 'kubexa-selftest' <<< "$out"; then
+    fail "$profile: selftest.yaml rendered nothing, but something else in this render names kubexa-selftest"
+    return 0
+  fi
+  ok "$profile: no selftest objects"
+}
+
+# The schema must reject an unknown selftest key. A non-strict loader once let
+# a camelCase key vanish here, and a rule that lost its filter collected ~9 GiB
+# a day. Run once, on the default profile; it renders independently of $out.
+assert_selftest_schema_rejects_unknown_key() {
+  local out=$1 profile=$2
+  [ "$profile" = "default" ] || return 0
+  local res
+  if res=$(helm template kubexa "$CHART" -f "$PROFILES_DIR/default.yaml" --set selftest.enabledd=true 2>&1); then
+    fail "$profile: --set selftest.enabledd=true rendered successfully -- the schema no longer rejects unknown selftest keys"
+  elif grep -qF 'enabledd' <<< "$res"; then
+    ok "$profile: the schema rejects an unknown selftest key"
+  else
+    fail "$profile: --set selftest.enabledd=true failed, but not on the key itself: ${res:0:300}"
+  fi
+}
+
 # Every OTHER profile must render no preflight at all. This is the assertion
 # that would catch a dropped `enabled` gate, which would otherwise ship the
 # Job into every install silently.
