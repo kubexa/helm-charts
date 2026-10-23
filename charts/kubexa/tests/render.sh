@@ -300,8 +300,8 @@ assert_selftest_mounts_the_deployments_secrets() {
   # The Job's volumeMounts reuse the same names, so a mountPath resets the scan.
   st_api=$(awk '/^[[:space:]]+- name: apiserver-config$/ {g=1; next} g && /mountPath:/ {g=0} g && /secretName:/ {print $2; exit}' <<< "$st")
   st_agent=$(awk '/^[[:space:]]+- name: agentserver-config$/ {g=1; next} g && /mountPath:/ {g=0} g && /secretName:/ {print $2; exit}' <<< "$st")
-  dep_api=$(awk '/^[[:space:]]+- name: config$/ {g=1; next} g && /secretName:/ {print $2; exit}' <<< "$api")
-  dep_agent=$(awk '/^[[:space:]]+- name: config$/ {g=1; next} g && /secretName:/ {print $2; exit}' <<< "$agent")
+  dep_api=$(awk '/^[[:space:]]+- name: config$/ {g=1; next} g && /mountPath:/ {g=0} g && /secretName:/ {print $2; exit}' <<< "$api")
+  dep_agent=$(awk '/^[[:space:]]+- name: config$/ {g=1; next} g && /mountPath:/ {g=0} g && /secretName:/ {print $2; exit}' <<< "$agent")
   if [ -z "$st_api" ] || [ -z "$st_agent" ] || [ -z "$dep_api" ] || [ -z "$dep_agent" ]; then
     fail "$profile: could not read all four Secret names (job apiserver=[$st_api] agentserver=[$st_agent]; deployments apiserver=[$dep_api] agentserver=[$dep_agent])"
     return 0
@@ -320,25 +320,27 @@ assert_selftest_mounts_the_deployments_secrets() {
 
 # --agentserver-target must be the agent-facing gRPC port. Both listeners
 # register grpc_health_v1, so a target on the admin port passes the gate check
-# while the door an agent knocks on is shut. Ports are read from the rendered
-# agentserver container, not from values, and the admin port is asserted
+# while the door an agent knocks on is shut. The flag is a Service address, so it is compared with the
+# rendered Services' own `port:` (service.yaml for agents, service-internal.yaml
+# for admin), not a Deployment containerPort or values, and the admin port is asserted
 # against explicitly.
 assert_selftest_targets_the_agent_port() {
   local out=$1 profile=$2
   [ "$profile" = "selftest" ] || return 0
-  local st agent target port grpc admin
+  local st agent adminsvc target port grpc admin
   st=$(extract_source "$out" "kubexa/templates/selftest.yaml")
-  agent=$(extract_source "$out" "kubexa/charts/agentserver/templates/deployment.yaml")
+  agent=$(extract_source "$out" "kubexa/charts/agentserver/templates/service.yaml")
+  adminsvc=$(extract_source "$out" "kubexa/charts/agentserver/templates/service-internal.yaml")
   target=$(grep -E '^[[:space:]]+- --agentserver-target=' <<< "$st" | head -n 1 || true)
   port=${target##*:}
-  grpc=$(awk '/^[[:space:]]+- name: grpc$/ {g=1; next} g && /containerPort:/ {print $2; exit}' <<< "$agent")
-  admin=$(awk '/^[[:space:]]+- name: admin$/ {g=1; next} g && /containerPort:/ {print $2; exit}' <<< "$agent")
+  grpc=$(awk '/^[[:space:]]+- name: grpc$/ {g=1; next} g && /^[[:space:]]+port:/ {print $2; exit}' <<< "$agent")
+  admin=$(awk '/^[[:space:]]+- name: admin$/ {g=1; next} g && /^[[:space:]]+port:/ {print $2; exit}' <<< "$adminsvc")
   if [ -z "$target" ] || [ -z "$grpc" ] || [ -z "$admin" ]; then
-    fail "$profile: could not read target/ports (target=[$target] grpc=[$grpc] admin=[$admin])"
+    fail "$profile: could not read target/Service ports (target=[$target] grpc=[$grpc] admin=[$admin])"
     return 0
   fi
   if [ "$grpc" = "$admin" ]; then
-    fail "$profile: the agentserver's grpc and admin containerPorts are both $grpc -- this assertion cannot tell them apart"
+    fail "$profile: the agentserver's grpc and admin Service ports are both $grpc -- this assertion cannot tell them apart"
     return 0
   fi
   if [ "$port" = "$admin" ]; then
