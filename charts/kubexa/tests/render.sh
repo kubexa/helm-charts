@@ -254,6 +254,37 @@ assert_preflight_image_matches_apiserver() {
   fi
 }
 
+# The two kubexa-backend processes must run ONE image. 0.8.21's note ended by
+# saying nothing asserted this, so the next drift would be as quiet as the one
+# 0.7.13 exists to repair -- the agentserver had silently fallen four releases
+# behind, and it was found by a human rendering the chart and reading the two
+# image lines side by side. This is that reading, automated. It runs on the
+# default profile, so it is checked on every suite run rather than only when
+# some optional Job is turned on.
+#
+# A deliberate divergence is still possible -- 0.8.21 made one on a specific,
+# argued basis -- but it now has to come here and say so.
+assert_agentserver_image_matches_apiserver() {
+  local out=$1 profile=$2
+  [ "$profile" = "default" ] || return 0
+  local api agent api_img agent_img
+  api=$(extract_source "$out" "kubexa/charts/apiserver/templates/deployment.yaml")
+  agent=$(extract_source "$out" "kubexa/charts/agentserver/templates/deployment.yaml")
+  api_img=$(grep -E '^[[:space:]]+image:' <<< "$api" | awk '{print $2}' | tr -d '"' | sort -u)
+  agent_img=$(grep -E '^[[:space:]]+image:' <<< "$agent" | awk '{print $2}' | tr -d '"' | sort -u)
+  api_img=${api_img//$'\n'/ | }
+  agent_img=${agent_img//$'\n'/ | }
+  if [ -z "$api_img" ] || [ -z "$agent_img" ]; then
+    fail "$profile: could not read both images (apiserver=[$api_img] agentserver=[$agent_img])"
+    return 0
+  fi
+  if [ "$api_img" = "$agent_img" ]; then
+    ok "$profile: apiserver and agentserver run the same image ($api_img)"
+  else
+    fail "$profile: the apiserver renders [$api_img] but the agentserver renders [$agent_img] -- the two subchart pins name different kubexa-backend releases. If that is deliberate, say so in the umbrella Chart.yaml note and change this assertion; if it is not, one of the two pins was forgotten, which is exactly how 0.7.13 came to be"
+  fi
+}
+
 # ── self-test assertions ────────────────────────────────────────────────────
 # All of these run against the `selftest` profile except the two that prove the
 # opposite (nothing by default, unknown key rejected). Each reads the Job and
