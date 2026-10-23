@@ -1564,8 +1564,10 @@ selftest:
   # apiserver's own Secret.
   login:
     email: ""
-    # A Secret holding the admin password; it reaches the process as an env var
-    # expanded into --login-password, never written into the pod spec.
+    # A Secret holding the admin password. It reaches the process as the
+    # SELFTEST_LOGIN_PASSWORD environment variable, not as an argument, so it
+    # is neither in the pod spec nor in argv (/proc/<pid>/cmdline is
+    # world-readable on the node; /proc/<pid>/environ is not).
     existingSecret: ""
     passwordKey: password
   # Send a real test message to this address. Empty dials and authenticates the

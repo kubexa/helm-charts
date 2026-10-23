@@ -22,6 +22,11 @@ against the rendered Deployments.
 {{- $consumer := .Values.consumer }}
 {{- $apiSecrets := $api.secrets | default dict }}
 {{- $apiKeys := ternary $apiSecrets.existingSecret (printf "%s-keys" $apiName) (not (empty $apiSecrets.existingSecret)) }}
+{{- /* The key INSIDE each config Secret is the subchart's own value too:
+existingSecretKey renames it, and with optional: true a hardcoded key would
+project nothing and fail silently at config load. */ -}}
+{{- $apiConfigKey := ($api.configSecret).existingSecretKey | default "apiserver.yaml" }}
+{{- $agentConfigKey := ($agent.configSecret).existingSecretKey | default "agentserver.yaml" }}
 {{- $apiConfigSecret := ternary $api.configSecret.existingSecret (printf "%s-config" $apiName) (not (empty (($api.configSecret).existingSecret))) }}
 {{- $agentConfigSecret := ternary $agent.configSecret.existingSecret (printf "%s-config" $agentName) (not (empty (($agent.configSecret).existingSecret))) }}
 {{- $apiHTTPPort := (($api.service).httpPort) | default 8080 }}
@@ -87,11 +92,6 @@ spec:
             {{- with .Values.selftest.login.email }}
             - --login-email={{ . }}
             {{- end }}
-            {{- if .Values.selftest.login.existingSecret }}
-            # Kubernetes expands $(VAR) from the container env, so the password
-            # reaches the process without being written into the pod spec.
-            - --login-password=$(SELFTEST_LOGIN_PASSWORD)
-            {{- end }}
             {{- with .Values.selftest.mailTo }}
             - --mail-to={{ . }}
             {{- end }}
@@ -101,6 +101,8 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
             {{- if .Values.selftest.login.existingSecret }}
+            # Environment only, never an argument: argv is world-readable on
+            # the node, environ is not. The binary falls back to this name.
             - name: SELFTEST_LOGIN_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -213,13 +215,13 @@ spec:
             secretName: {{ $apiConfigSecret }}
             optional: true
             items:
-              - key: apiserver.yaml
+              - key: {{ $apiConfigKey }}
                 path: config.yaml
         - name: agentserver-config
           secret:
             secretName: {{ $agentConfigSecret }}
             optional: true
             items:
-              - key: agentserver.yaml
+              - key: {{ $agentConfigKey }}
                 path: config.yaml
 {{- end }}
