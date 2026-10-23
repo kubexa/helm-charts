@@ -1522,3 +1522,66 @@ preflight:
     create: true
   serviceAccount:
     name: kubexa-preflight
+
+# ── selftest ─────────────────────────────────────────────────────────────────
+# A post-install check the OPERATOR runs by hand: it logs in, sends real
+# requests through the product's own endpoints and reports PASS / FAIL / SKIP
+# per check. How to run it is in docs/operations/selftest.md in the product
+# repo. It is one Job and no RBAC -- it never touches the Kubernetes API.
+selftest:
+  # false for two reasons, and both matter. The Job is run by hand, so nothing
+  # about `helm install` or `helm upgrade` should ever create it. And its pod
+  # spec names every credential the platform has (the apiserver's key Secret,
+  # the bootstrap superadmin login, the datastore passwords), so a copy that
+  # exists by default is a credential surface nobody asked for. It carries no
+  # Helm hook annotations and must never become a post-install hook.
+  enabled: false
+  image:
+    repository: ghcr.io/kubexa/kubexa-backend
+    # Held at the same value as preflight.image.tag; they are bumped together.
+    #
+    # TRAP: 0.5.63 does NOT contain /kubexa-selftest. It is the last image
+    # BEFORE the self-test; the first image that holds the binary is the
+    # release that follows it (0.5.64 or later, whichever tag the A1.3 release
+    # cuts). Until this tag moves past 0.5.63, enabling selftest starts a
+    # container whose command does not exist.
+    tag: "0.5.63"
+    pullPolicy: IfNotPresent
+  # The Job's own ceiling. The binary bounds the whole run with its --timeout;
+  # this is the backstop if the process itself hangs.
+  activeDeadlineSeconds: 600
+  # Unset (null) on purpose: the logs ARE the deliverable, and a Job that
+  # deletes itself takes them along. Set a number to have the cluster clean up.
+  ttlSecondsAfterFinished: ~
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+  # Credentials for the read-back checks. Empty email and no secret means the
+  # binary uses the bootstrap superadmin credentials mirrored from the
+  # apiserver's own Secret.
+  login:
+    email: ""
+    # A Secret holding the admin password. It reaches the process as the
+    # SELFTEST_LOGIN_PASSWORD environment variable, not as an argument, so it
+    # is neither in the pod spec nor in argv (/proc/<pid>/cmdline is
+    # world-readable on the node; /proc/<pid>/environ is not).
+    existingSecret: ""
+    passwordKey: password
+  # Send a real test message to this address. Empty dials and authenticates the
+  # mail provider without sending anything.
+  mailTo: ""
+  # The consumer's /metrics URL. Empty derives it from the consumer's Service
+  # and admin port (and is omitted when consumer.enabled is false).
+  consumerMetricsURL: ""
+  # COUPLING (two places): the Job's --consumer-flush-interval and
+  # --consumer-durable are read from this chart's own consumer values --
+  # consumer.config.writers.flushInterval and consumer.config.nats.consumer.name
+  # -- and fall back to the consumer subchart's defaults (1s, kubexa-consumer)
+  # when this chart does not set them. They are not secrets, so the consumer's
+  # config Secret is deliberately not mounted just to read them. Overriding
+  # either on the consumer therefore changes what the self-test expects at the
+  # same time, in the same place; a consumer configured by any route this chart
+  # does not see (a hand-edited Secret) is a second place to change.

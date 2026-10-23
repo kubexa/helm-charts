@@ -26,6 +26,36 @@
         }
       }
     },
+    "selftest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": { "type": "string", "minLength": 1 },
+            "tag": { "type": "string", "minLength": 1 },
+            "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] }
+          }
+        },
+        "activeDeadlineSeconds": { "type": "integer", "minimum": 1 },
+        "ttlSecondsAfterFinished": { "type": ["integer", "null"], "minimum": 0 },
+        "resources": { "type": "object" },
+        "login": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "email": { "type": "string" },
+            "existingSecret": { "type": "string" },
+            "passwordKey": { "type": "string", "minLength": 1 }
+          }
+        },
+        "mailTo": { "type": "string" },
+        "consumerMetricsURL": { "type": "string" }
+      }
+    },
     "valkey": {
       "type": "object",
       "properties": {
