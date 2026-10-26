@@ -706,7 +706,30 @@ type: application
 # three defects, none of which any test in the repo would have caught, because
 # every test of that lane drove it through a fake that does not validate.
 # 0.8.23's own acceptance is ten PASS and "every check ran. exit code 0".
-version: 0.8.23
+# 0.8.24 changes no template. It moves kubexa-app to 0.1.71, so the namespace
+# runs app image 0.2.68. Nothing else moves: both kubexa-backend processes stay
+# on 0.5.65 and the consumer on 0.2.3.
+#
+# Most of what those two app releases are for is something this chart never
+# deploys -- the kubexa.dev/explore showcase, which is the same SPA built a
+# SECOND time in playground mode and published as a release asset for the
+# landing site to serve. The product image is unchanged by it, and that is
+# checked from both sides: the app repo's bundle scan fails the build if a byte
+# of playground code reaches the shipped dist, and fails again if it is absent
+# from the playground build.
+#
+# What an install actually gains are the three product fixes that travelled
+# with it. The appearance screen's language select reads a normalized locale, so
+# a stored '', 'pt-BR' or 'EN' no longer lands on an unmatched option, shows
+# Turkish and then persists a language the account never chose. The sessions
+# list says iOS for an iPhone or iPad (every such UA says "like Mac OS X",
+# which matched first). And a support thread wraps a long unbroken run on
+# Safari and iOS below 15.4 instead of widening the page.
+#
+# No migration, no value and no ordering change, and it pairs with any
+# apiserver -- neither release calls a route that moved. Rolling back to 0.8.23
+# returns image 0.2.66.
+version: 0.8.24
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -2433,6 +2456,24 @@ dependencies:
     # apiserver 0.4.71's NOTES actionable: the apiserver's NOTES tells the
     # operator to open the wizard in the browser, and this is the first app
     # build that has a page there.
-    version: "0.1.69"
+    #
+    # 0.1.70 carries image 0.2.67 and 0.1.71 carries 0.2.68. Both were cut to
+    # publish the kubexa.dev/explore showcase: the same SPA built a second time
+    # in playground mode, attached to the release as a tarball and served by
+    # the landing site, never part of the image this chart deploys. A two-sided
+    # bundle scan is what keeps that true in both directions.
+    #
+    # The product changes they carry are small and independent of each other.
+    # The appearance screen's language select reads a normalized locale, so a
+    # stored '', 'pt-BR' or 'EN' no longer lands on an unmatched option, shows
+    # Turkish and persists a language the account never chose; the sessions list
+    # says iOS for an iPhone or iPad; support threads wrap long unbroken runs on
+    # Safari/iOS below 15.4. 0.2.68 adds exactly one line to the product --
+    # `toLang`, which `normalizeLang` now delegates to -- and spends the rest of
+    # itself on the showcase taking its language from the page that frames it.
+    #
+    # No template and no contract change, so it pairs with any apiserver and
+    # moves on its own.
+    version: "0.1.71"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
