@@ -447,7 +447,7 @@ assert_selftest_durable_matches_consumer() {
 assert_selftest_rbac_is_namespaced_and_list_only() {
   local out=$1 profile=$2
   [ "$profile" = "selftest" ] || return 0
-  local st kinds role verbs resources cluster sa job_sa
+  local st kinds role verbs groups resources cluster sa job_sa ref
   st=$(extract_source "$out" "kubexa/templates/selftest.yaml")
   kinds=$(grep -E '^kind:' <<< "$st" | awk '{print $2}' | sort | tr '\n' ' ')
   if [ "$kinds" != "Job Role RoleBinding ServiceAccount " ]; then
@@ -469,12 +469,18 @@ assert_selftest_rbac_is_namespaced_and_list_only() {
     fail "$profile: the self-test Role's verbs are [${verbs//$'\n'/ | }], expected only [\"list\"] -- get/watch/write would let a pod holding every platform credential read or change more than the one thing the installed-image check needs"
     return 0
   fi
+  groups=$(grep -E '^[[:space:]]+- apiGroups:' <<< "$role" | sed 's/^[[:space:]]*- apiGroups:[[:space:]]*//' | sort -u || true)
+  if [ "$groups" != $'["apps"]\n["batch"]' ]; then
+    fail "$profile: the self-test Role's apiGroups are [${groups//$'\n'/ | }], expected exactly [\"apps\"] and [\"batch\"] -- a wildcard or extra group widens what the same resource names match"
+    return 0
+  fi
   resources=$(grep -E '^[[:space:]]+resources:' <<< "$role" | sed 's/^[[:space:]]*resources:[[:space:]]*//' | tr -d '[]" ' | tr ',' '\n' | sort | tr '\n' ' ')
   if [ "$resources" != "cronjobs daemonsets deployments jobs statefulsets " ]; then
     fail "$profile: the self-test Role's resources are [$resources], expected exactly cronjobs daemonsets deployments jobs statefulsets -- a new resource (secrets above all) is a grant the check does not need"
     return 0
   fi
-  if ! grep -qE '^[[:space:]]+kind: Role$' <<< "$(grep -A3 '^roleRef:' <<< "$st")"; then
+  ref=$(awk '/^roleRef:/ {f=1; next} /^[a-zA-Z]/ {f=0} f' <<< "$st")
+  if ! grep -qE '^[[:space:]]+kind: Role$' <<< "$ref"; then
     fail "$profile: the RoleBinding's roleRef is not kind: Role"
     return 0
   fi
@@ -489,6 +495,33 @@ assert_selftest_rbac_is_namespaced_and_list_only() {
     return 0
   fi
   ok "$profile: self-test RBAC is a namespaced Role, list-only on the five workload kinds, bound to the Job's ServiceAccount; SELFTEST_NAMESPACE from fieldRef"
+}
+
+# selftest.rbac.create=false must render coherently: the ServiceAccount and
+# the Job, no Role, no RoleBinding (a RoleBinding would dangle on a Role that
+# is not there), and the Job still runs as the ServiceAccount that exists.
+# Renders independently of $out, once, on the selftest profile.
+assert_selftest_rbac_create_false_is_coherent() {
+  local out=$1 profile=$2
+  [ "$profile" = "selftest" ] || return 0
+  local res st kinds sa job_sa
+  if ! res=$(helm template kubexa "$CHART" -f "$PROFILES_DIR/selftest.yaml" --set selftest.rbac.create=false 2>&1); then
+    fail "$profile: --set selftest.rbac.create=false failed to render: ${res:0:300}"
+    return 0
+  fi
+  st=$(extract_source "$res" "kubexa/templates/selftest.yaml")
+  kinds=$(grep -E '^kind:' <<< "$st" | awk '{print $2}' | sort | tr '\n' ' ')
+  if [ "$kinds" != "Job ServiceAccount " ]; then
+    fail "$profile: with selftest.rbac.create=false selftest.yaml renders [$kinds], expected exactly Job ServiceAccount -- a Role or RoleBinding the installer was told not to create"
+    return 0
+  fi
+  sa=$(awk '/^kind: ServiceAccount$/ {f=1} f && /^  name:/ {print $2; exit}' <<< "$st")
+  job_sa=$(grep -E '^[[:space:]]+serviceAccountName:' <<< "$st" | awk '{print $2}')
+  if [ -z "$sa" ] || [ "$sa" != "$job_sa" ]; then
+    fail "$profile: with selftest.rbac.create=false the Job runs as [$job_sa] but the ServiceAccount is [$sa]"
+    return 0
+  fi
+  ok "$profile: selftest.rbac.create=false renders only the Job and its ServiceAccount (no dangling binding)"
 }
 
 # The default must render nothing for the self-test: a default-on Job holding

@@ -13,6 +13,13 @@ authority the check never uses, held by a pod whose spec names every credential
 the platform has. Widening it is worse than a check that SKIPs; tests/render.sh
 fails if the verbs, the resources or the kind change.
 
+selftest.rbac.create=false renders the ServiceAccount and the Job but neither
+the Role nor the RoleBinding, for an installing identity that may not create
+them (same shape as preflight.rbac.create). The ServiceAccount is kept so the
+operator has a stable subject to bind themselves, and the Job keeps running as
+it rather than falling back to "default". Until bound, the list calls are
+Forbidden and the installed-image check SKIPs; nothing else changes.
+
 The Job learns its namespace from the downward API (SELFTEST_NAMESPACE), not
 from .Release.Namespace: the value is then the namespace the pod actually runs
 in and cannot drift from a hand-set one. The ServiceAccount token is mounted
@@ -59,6 +66,7 @@ metadata:
     app.kubernetes.io/name: kubexa-selftest
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- if .Values.selftest.rbac.create }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -94,6 +102,7 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "kubexa.selftestFullname" . }}
     namespace: {{ .Release.Namespace }}
+{{- end }}
 ---
 apiVersion: batch/v1
 kind: Job

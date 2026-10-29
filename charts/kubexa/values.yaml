@@ -1570,6 +1570,14 @@ selftest:
       memory: 32Mi
     limits:
       memory: 128Mi
+  rbac:
+    # false renders the ServiceAccount but neither the Role nor the RoleBinding,
+    # so an operator whose installing identity may not create them can bind the
+    # ServiceAccount themselves (list on deployments, statefulsets, daemonsets
+    # and, in apiGroup batch, jobs and cronjobs, in this namespace). Until they
+    # do, the installed-image check reports SKIP on Forbidden -- it does not
+    # pass and it does not fail the run.
+    create: true
   # Credentials for the read-back checks. Empty email and no secret means the
   # binary uses the bootstrap superadmin credentials mirrored from the
   # apiserver's own Secret.
