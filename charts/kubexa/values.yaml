@@ -1529,7 +1529,8 @@ preflight:
 # A post-install check the OPERATOR runs by hand: it logs in, sends real
 # requests through the product's own endpoints and reports PASS / FAIL / SKIP
 # per check. How to run it is in docs/operations/selftest.md in the product
-# repo. It is one Job and no RBAC -- it never touches the Kubernetes API.
+# repo. It is one Job plus a ServiceAccount and a namespaced, list-only Role that
+# lets it read which image tags its own namespace runs (nothing else).
 selftest:
   # false for two reasons, and both matter. The Job is run by hand, so nothing
   # about `helm install` or `helm upgrade` should ever create it. And its pod
@@ -1555,6 +1556,10 @@ selftest:
     pullPolicy: IfNotPresent
   # The Job's own ceiling. The binary bounds the whole run with its --timeout;
   # this is the backstop if the process itself hangs.
+  #
+  # Keep it above the binary's --timeout PLUS 90s. If the Job controller
+  # deletes the pod before the run finishes it deletes the report with it, and
+  # the report is the whole output.
   activeDeadlineSeconds: 600
   # Unset (null) on purpose: the logs ARE the deliverable, and a Job that
   # deletes itself takes them along. Set a number to have the cluster clean up.
