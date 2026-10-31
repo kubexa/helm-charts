@@ -1543,9 +1543,8 @@ supportBundle:
     # TRAP: NO published image contains /kubexa-supportbundle yet. Enabling
     # this Job against any image published to date starts a container whose
     # command does not exist. The first image that will contain it is the next
-    # release cut from feat/a3.1-support-bundle in kubexa-backend. Until that
-    # release exists and this tag is moved to it, rendering this Job is safe
-    # and running it is not.
+    # kubexa-backend release. Until that release exists and this tag is moved
+    # to it, rendering this Job is safe and running it is not.
     #
     # This value and the apiserver subchart's appVersion must still be bumped in
     # the SAME commit: the render assertion compares them to each other, so it

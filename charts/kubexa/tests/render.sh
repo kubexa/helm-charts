@@ -571,8 +571,8 @@ assert_supportbundle_image_matches_apiserver() {
   local sb api sb_img api_img
   sb=$(extract_source "$out" "kubexa/templates/supportbundle.yaml")
   api=$(extract_source "$out" "kubexa/charts/apiserver/templates/deployment.yaml")
-  sb_img=$(grep -E '^[[:space:]]+image:' <<< "$sb" | awk '{print $2}' | tr -d '"' | sort -u)
-  api_img=$(grep -E '^[[:space:]]+image:' <<< "$api" | awk '{print $2}' | tr -d '"' | sort -u)
+  sb_img=$(grep -E '^[[:space:]]+image:' <<< "$sb" | awk '{print $2}' | tr -d '"' | sort -u || true)
+  api_img=$(grep -E '^[[:space:]]+image:' <<< "$api" | awk '{print $2}' | tr -d '"' | sort -u || true)
   sb_img=${sb_img//$'\n'/ | }
   api_img=${api_img//$'\n'/ | }
   if [ -z "$sb_img" ] || [ -z "$api_img" ]; then
@@ -625,7 +625,7 @@ assert_supportbundle_rbac_is_namespaced_and_read_only() {
   [ "$profile" = "supportbundle" ] || return 0
   local sb kinds role rules expected cluster sa job_sa ref subj
   sb=$(extract_source "$out" "kubexa/templates/supportbundle.yaml")
-  kinds=$(grep -E '^kind:' <<< "$sb" | awk '{print $2}' | sort | tr '\n' ' ')
+  kinds=$(grep -E '^kind:' <<< "$sb" | awk '{print $2}' | sort | tr '\n' ' ' || true)
   if [ "$kinds" != "Job Role RoleBinding ServiceAccount " ]; then
     fail "$profile: supportbundle.yaml renders [$kinds], expected exactly Job Role RoleBinding ServiceAccount"
     return 0
@@ -664,7 +664,7 @@ verbs: ["list"]'
   fi
   ref=$(awk '/^roleRef:/ {f=1; next} /^[a-zA-Z]/ {f=0} f' <<< "$sb")
   sa=$(awk '/^kind: ServiceAccount$/ {f=1} f && /^  name:/ {print $2; exit}' <<< "$sb")
-  job_sa=$(grep -E '^[[:space:]]+serviceAccountName:' <<< "$sb" | awk '{print $2}')
+  job_sa=$(grep -E '^[[:space:]]+serviceAccountName:' <<< "$sb" | awk '{print $2}' || true)
   subj=$(awk '/^subjects:/ {f=1; next} /^[a-zA-Z]/ {f=0} f' <<< "$sb")
   if ! grep -qE '^[[:space:]]+kind: Role$' <<< "$ref" || ! grep -qF "name: kubexa-support-bundle" <<< "$ref"; then
     fail "$profile: the RoleBinding's roleRef is not kind: Role name: kubexa-support-bundle"
@@ -672,6 +672,10 @@ verbs: ["list"]'
   fi
   if ! grep -qE '^[[:space:]]+- kind: ServiceAccount$' <<< "$subj" || ! grep -qF "name: $sa" <<< "$subj"; then
     fail "$profile: the RoleBinding's subject is not the ServiceAccount [$sa]"
+    return 0
+  fi
+  if ! grep -qE '^[[:space:]]+namespace: default$' <<< "$subj"; then
+    fail "$profile: the RoleBinding subject carries no namespace: default (the namespace render.sh installs into) -- a ServiceAccount subject without it binds nothing"
     return 0
   fi
   if [ "$sa" != "kubexa-support-bundle" ] || [ "$sa" != "$job_sa" ]; then
@@ -705,7 +709,7 @@ assert_supportbundle_job_shape() {
     return 0
   fi
   local env_names
-  env_names=$(grep -E '^[[:space:]]+- name: [A-Z_]+$' <<< "$sb" | awk '{print $3}' | tr '\n' ' ')
+  env_names=$(grep -E '^[[:space:]]+- name: [A-Z_]+$' <<< "$sb" | awk '{print $3}' | tr '\n' ' ' || true)
   if [ "$env_names" != "KUBEXA_NAMESPACE " ]; then
     fail "$profile: the Job's environment is [$env_names], expected only KUBEXA_NAMESPACE"
     return 0
@@ -728,6 +732,59 @@ assert_supportbundle_job_shape() {
   ok "$profile: support-bundle Job: backoffLimit 0, no TTL, no hook, no credential env, KUBEXA_NAMESPACE from fieldRef, /kubexa-supportbundle with all eight arguments, --apiserver-url -> $svc_name"
 }
 
+# Properties nothing else pins: the key->config.yaml rename in both volumes
+# (without it the binary finds no file at its default flag path and both config
+# sections come back empty), the deadline arithmetic, restartPolicy, and the
+# security context.
+assert_supportbundle_pod_invariants() {
+  local out=$1 profile=$2
+  [ "$profile" = "supportbundle" ] || return 0
+  local sb vol items dl to
+  sb=$(extract_source "$out" "kubexa/templates/supportbundle.yaml")
+  for vol in apiserver-config agentserver-config; do
+    items=$(awk -v v="$vol" '$0 ~ "^[[:space:]]+- name: " v "$" {g=1; next} g && /mountPath:/ {g=0} g && /items:/ {i=1; next} g && i && /- key:/ {k=$3} g && i && /path:/ {print k " " $2; exit}' <<< "$sb" || true)
+    if [ -z "$items" ]; then
+      fail "$profile: volume $vol has no items key->path rename"
+      return 0
+    fi
+    case "$items" in
+      "apiserver.yaml config.yaml"|"agentserver.yaml config.yaml") ;;
+      *) fail "$profile: volume $vol projects [$items], expected <key> config.yaml with the subchart's default key"
+         return 0 ;;
+    esac
+    if [ "$vol" = "apiserver-config" ] && [ "$items" != "apiserver.yaml config.yaml" ]; then
+      fail "$profile: apiserver-config projects [$items]"; return 0
+    fi
+    if [ "$vol" = "agentserver-config" ] && [ "$items" != "agentserver.yaml config.yaml" ]; then
+      fail "$profile: agentserver-config projects [$items]"; return 0
+    fi
+  done
+  dl=$(grep -E '^  activeDeadlineSeconds: ' <<< "$sb" | awk '{print $2}' || true)
+  to=$(grep -E '^[[:space:]]+- --timeout=' <<< "$sb" | sed -E 's/.*--timeout=//' || true)
+  if ! [[ "$dl" =~ ^[0-9]+$ ]] || ! [[ "$to" =~ ^[0-9]+s$ ]]; then
+    fail "$profile: cannot compare the deadlines: activeDeadlineSeconds=[$dl] --timeout=[$to] (expected plain integer seconds and Ns)"
+    return 0
+  fi
+  to=${to%s}
+  if [ "$dl" -le "$to" ] || [ $((dl - to)) -lt 90 ]; then
+    fail "$profile: activeDeadlineSeconds ($dl) is not at least 90s above --timeout ($to) -- the Job deadline would delete the pod, and the bundle in its log, before the command's own bound fires"
+    return 0
+  fi
+  if ! grep -qE '^      restartPolicy: Never$' <<< "$sb"; then
+    fail "$profile: the support-bundle pod's restartPolicy is not Never"
+    return 0
+  fi
+  local needle
+  for needle in '        runAsNonRoot: true' '        runAsUser: 65532' '          type: RuntimeDefault' \
+      '            allowPrivilegeEscalation: false' '            readOnlyRootFilesystem: true' '              drop: ["ALL"]'; do
+    if ! grep -qxF "$needle" <<< "$sb"; then
+      fail "$profile: the support-bundle security context lost [${needle#"${needle%%[![:space:]]*}"}]"
+      return 0
+    fi
+  done
+  ok "$profile: support-bundle pod: config items rename to config.yaml in both volumes, deadline $dl is $((dl - to))s above --timeout $to, restartPolicy Never, security context pinned"
+}
+
 # supportBundle.rbac.create=false: ServiceAccount and Job survive, Role and
 # RoleBinding vanish, and the Job still runs as the ServiceAccount that exists.
 assert_supportbundle_rbac_create_false_is_coherent() {
@@ -739,13 +796,13 @@ assert_supportbundle_rbac_create_false_is_coherent() {
     return 0
   fi
   sb=$(extract_source "$res" "kubexa/templates/supportbundle.yaml")
-  kinds=$(grep -E '^kind:' <<< "$sb" | awk '{print $2}' | sort | tr '\n' ' ')
+  kinds=$(grep -E '^kind:' <<< "$sb" | awk '{print $2}' | sort | tr '\n' ' ' || true)
   if [ "$kinds" != "Job ServiceAccount " ]; then
     fail "$profile: with supportBundle.rbac.create=false supportbundle.yaml renders [$kinds], expected exactly Job ServiceAccount"
     return 0
   fi
   sa=$(awk '/^kind: ServiceAccount$/ {f=1} f && /^  name:/ {print $2; exit}' <<< "$sb")
-  job_sa=$(grep -E '^[[:space:]]+serviceAccountName:' <<< "$sb" | awk '{print $2}')
+  job_sa=$(grep -E '^[[:space:]]+serviceAccountName:' <<< "$sb" | awk '{print $2}' || true)
   if [ -z "$sa" ] || [ "$sa" != "$job_sa" ]; then
     fail "$profile: with supportBundle.rbac.create=false the Job runs as [$job_sa] but the ServiceAccount is [$sa]"
     return 0
