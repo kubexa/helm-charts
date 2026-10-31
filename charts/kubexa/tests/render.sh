@@ -556,6 +556,248 @@ assert_selftest_schema_rejects_unknown_key() {
   fi
 }
 
+# ── support-bundle assertions ───────────────────────────────────────────────
+# All of these run against the `supportbundle` profile except the two that prove
+# the opposite (nothing by default, unknown key / wrong type rejected). An
+# assertion that never runs prints nothing and the script still passes, so each
+# one prints an `ok:` line that the run must show. Herestrings only: see
+# assert_bundled_vm for the SIGPIPE trap.
+
+# Same drift this product shipped twice: the Job's image must equal the
+# apiserver's.
+assert_supportbundle_image_matches_apiserver() {
+  local out=$1 profile=$2
+  [ "$profile" = "supportbundle" ] || return 0
+  local sb api sb_img api_img
+  sb=$(extract_source "$out" "kubexa/templates/supportbundle.yaml")
+  api=$(extract_source "$out" "kubexa/charts/apiserver/templates/deployment.yaml")
+  sb_img=$(grep -E '^[[:space:]]+image:' <<< "$sb" | awk '{print $2}' | tr -d '"' | sort -u)
+  api_img=$(grep -E '^[[:space:]]+image:' <<< "$api" | awk '{print $2}' | tr -d '"' | sort -u)
+  sb_img=${sb_img//$'\n'/ | }
+  api_img=${api_img//$'\n'/ | }
+  if [ -z "$sb_img" ] || [ -z "$api_img" ]; then
+    fail "$profile: could not read both images (supportbundle=[$sb_img] apiserver=[$api_img])"
+    return 0
+  fi
+  if [ "$sb_img" = "$api_img" ]; then
+    ok "$profile: supportbundle and apiserver run the same image ($sb_img)"
+  else
+    fail "$profile: supportbundle runs [$sb_img] but the apiserver renders [$api_img] -- supportBundle.image.tag has drifted from the apiserver subchart's appVersion"
+  fi
+}
+
+# The config Secrets the Job mounts must be the ones the Deployments mount,
+# read-only and optional.
+assert_supportbundle_mounts_the_deployments_secrets() {
+  local out=$1 profile=$2
+  [ "$profile" = "supportbundle" ] || return 0
+  local sb api agent sb_api sb_agent dep_api dep_agent
+  sb=$(extract_source "$out" "kubexa/templates/supportbundle.yaml")
+  api=$(extract_source "$out" "kubexa/charts/apiserver/templates/deployment.yaml")
+  agent=$(extract_source "$out" "kubexa/charts/agentserver/templates/deployment.yaml")
+  sb_api=$(awk '/^[[:space:]]+- name: apiserver-config$/ {g=1; next} g && /mountPath:/ {g=0} g && /secretName:/ {print $2; exit}' <<< "$sb")
+  sb_agent=$(awk '/^[[:space:]]+- name: agentserver-config$/ {g=1; next} g && /mountPath:/ {g=0} g && /secretName:/ {print $2; exit}' <<< "$sb")
+  dep_api=$(awk '/^[[:space:]]+- name: config$/ {g=1; next} g && /mountPath:/ {g=0} g && /secretName:/ {print $2; exit}' <<< "$api")
+  dep_agent=$(awk '/^[[:space:]]+- name: config$/ {g=1; next} g && /mountPath:/ {g=0} g && /secretName:/ {print $2; exit}' <<< "$agent")
+  if [ -z "$sb_api" ] || [ -z "$sb_agent" ] || [ -z "$dep_api" ] || [ -z "$dep_agent" ]; then
+    fail "$profile: could not read all four Secret names (job apiserver=[$sb_api] agentserver=[$sb_agent]; deployments apiserver=[$dep_api] agentserver=[$dep_agent])"
+    return 0
+  fi
+  if [ "$sb_api" != "$dep_api" ] || [ "$sb_agent" != "$dep_agent" ]; then
+    fail "$profile: supportbundle mounts [$sb_api] [$sb_agent] but the Deployments mount [$dep_api] [$dep_agent] -- kubexa.subchartFullname no longer matches the subchart's fullname"
+    return 0
+  fi
+  local optional ro
+  optional=$(grep -cE '^[[:space:]]+optional: true$' <<< "$sb" || true)
+  ro=$(grep -cE '^[[:space:]]+readOnly: true$' <<< "$sb" || true)
+  if [ "$optional" != "2" ] || [ "$ro" != "2" ]; then
+    fail "$profile: expected both config Secret volumes optional: true and both mounts readOnly: true, found optional=$optional readOnly=$ro"
+    return 0
+  fi
+  ok "$profile: supportbundle mounts the Deployments' config Secrets ($sb_api, $sb_agent), read-only and optional"
+}
+
+# The Role, to the letter: a namespaced Role, exactly the five rules plus
+# pods/log get, no secrets, no write verb, no pods/exec; the binding names the
+# Role and the ServiceAccount; the Job runs as that ServiceAccount.
+assert_supportbundle_rbac_is_namespaced_and_read_only() {
+  local out=$1 profile=$2
+  [ "$profile" = "supportbundle" ] || return 0
+  local sb kinds role rules expected cluster sa job_sa ref subj
+  sb=$(extract_source "$out" "kubexa/templates/supportbundle.yaml")
+  kinds=$(grep -E '^kind:' <<< "$sb" | awk '{print $2}' | sort | tr '\n' ' ')
+  if [ "$kinds" != "Job Role RoleBinding ServiceAccount " ]; then
+    fail "$profile: supportbundle.yaml renders [$kinds], expected exactly Job Role RoleBinding ServiceAccount"
+    return 0
+  fi
+  cluster=$(awk '/^---$/ { if (k ~ /^ClusterRole(Binding)?$/ && n ~ /support-bundle/) print k " " n; k=""; n=""; m=0; next }
+    /^kind:/ { k=$2 } /^metadata:/ { m=1; next } /^[a-zA-Z]/ { m=0 } m && /^  name:/ && n=="" { n=$2 }
+    END { if (k ~ /^ClusterRole(Binding)?$/ && n ~ /support-bundle/) print k " " n }' <<< "$out")
+  if [ -n "$cluster" ]; then
+    fail "$profile: cluster-scoped RBAC named for the support bundle (${cluster//$'\n'/ | }) -- the Role must stay namespaced"
+    return 0
+  fi
+  role=$(awk '/^kind: Role$/ {f=1} /^---$/ {f=0} f' <<< "$sb")
+  rules=$(grep -E '^[[:space:]]+(- )?(apiGroups|resources|verbs):' <<< "$role" | sed -E 's/^[[:space:]]+(- )?//' || true)
+  expected='apiGroups: ["apps"]
+resources: ["deployments", "statefulsets", "daemonsets"]
+verbs: ["list"]
+apiGroups: ["batch"]
+resources: ["jobs", "cronjobs"]
+verbs: ["list"]
+apiGroups: [""]
+resources: ["pods"]
+verbs: ["list"]
+apiGroups: [""]
+resources: ["pods/log"]
+verbs: ["get"]
+apiGroups: [""]
+resources: ["events"]
+verbs: ["list"]'
+  if [ "$rules" != "$expected" ]; then
+    fail "$profile: the support-bundle Role's rules differ from the five list rules plus get pods/log. Got: ${rules//$'\n'/ ; }"
+    return 0
+  fi
+  if grep -qE 'pods/exec|secrets|"(create|update|patch|delete|deletecollection|watch|\*)"' <<< "$role"; then
+    fail "$profile: the support-bundle Role mentions pods/exec, secrets, watch, a wildcard or a write verb"
+    return 0
+  fi
+  ref=$(awk '/^roleRef:/ {f=1; next} /^[a-zA-Z]/ {f=0} f' <<< "$sb")
+  sa=$(awk '/^kind: ServiceAccount$/ {f=1} f && /^  name:/ {print $2; exit}' <<< "$sb")
+  job_sa=$(grep -E '^[[:space:]]+serviceAccountName:' <<< "$sb" | awk '{print $2}')
+  subj=$(awk '/^subjects:/ {f=1; next} /^[a-zA-Z]/ {f=0} f' <<< "$sb")
+  if ! grep -qE '^[[:space:]]+kind: Role$' <<< "$ref" || ! grep -qF "name: kubexa-support-bundle" <<< "$ref"; then
+    fail "$profile: the RoleBinding's roleRef is not kind: Role name: kubexa-support-bundle"
+    return 0
+  fi
+  if ! grep -qE '^[[:space:]]+- kind: ServiceAccount$' <<< "$subj" || ! grep -qF "name: $sa" <<< "$subj"; then
+    fail "$profile: the RoleBinding's subject is not the ServiceAccount [$sa]"
+    return 0
+  fi
+  if [ "$sa" != "kubexa-support-bundle" ] || [ "$sa" != "$job_sa" ]; then
+    fail "$profile: the Job runs as [$job_sa] and the ServiceAccount is [$sa]; both must be kubexa-support-bundle (the runbook's cleanup command names it)"
+    return 0
+  fi
+  ok "$profile: support-bundle RBAC is a namespaced Role of exactly five list rules plus get pods/log (no secrets, no write, no exec), bound to the Job's ServiceAccount kubexa-support-bundle"
+}
+
+# The Job's shape: no retry, no TTL, no hook, no credential env, the namespace
+# from the downward API, the command, the flags and the Service URL.
+assert_supportbundle_job_shape() {
+  local out=$1 profile=$2
+  [ "$profile" = "supportbundle" ] || return 0
+  local sb api_svc
+  sb=$(extract_source "$out" "kubexa/templates/supportbundle.yaml")
+  if ! grep -qE '^  backoffLimit: 0$' <<< "$sb"; then
+    fail "$profile: support-bundle backoffLimit is not 0 -- a retry writes a second bundle into a second pod's log"
+    return 0
+  fi
+  if grep -qE 'ttlSecondsAfterFinished|helm.sh/hook|secretKeyRef' <<< "$sb"; then
+    fail "$profile: the support-bundle Job carries a TTL (it would delete the log), a Helm hook annotation or a secretKeyRef (a credential env block)"
+    return 0
+  fi
+  if ! grep -A3 'name: KUBEXA_NAMESPACE' <<< "$sb" | grep -qF 'fieldPath: metadata.namespace'; then
+    fail "$profile: KUBEXA_NAMESPACE is not taken from fieldRef metadata.namespace"
+    return 0
+  fi
+  if ! grep -qF 'command: ["/kubexa-supportbundle"]' <<< "$sb"; then
+    fail "$profile: the container does not run /kubexa-supportbundle"
+    return 0
+  fi
+  local env_names
+  env_names=$(grep -E '^[[:space:]]+- name: [A-Z_]+$' <<< "$sb" | awk '{print $3}' | tr '\n' ' ')
+  if [ "$env_names" != "KUBEXA_NAMESPACE " ]; then
+    fail "$profile: the Job's environment is [$env_names], expected only KUBEXA_NAMESPACE"
+    return 0
+  fi
+  local flag
+  for flag in --apiserver-config=/etc/kubexa/apiserver/config.yaml --agentserver-config=/etc/kubexa/agentserver/config.yaml \
+      --tail-lines=200 --limit-bytes=262144 --max-events=200 --byte-ceiling=4194304 --timeout=240s --log-read-timeout=10s; do
+    if ! grep -qE "^[[:space:]]+- ${flag}\$" <<< "$sb"; then
+      fail "$profile: the support-bundle Job is missing the argument $flag"
+      return 0
+    fi
+  done
+  api_svc=$(extract_source "$out" "kubexa/charts/apiserver/templates/service.yaml")
+  local svc_name
+  svc_name=$(awk '/^kind: Service$/ {f=1} f && /^  name:/ {print $2; exit}' <<< "$api_svc")
+  if [ -z "$svc_name" ] || ! grep -qE "^[[:space:]]+- --apiserver-url=http://${svc_name}\.[^.]+\.svc:8080\$" <<< "$sb"; then
+    fail "$profile: --apiserver-url does not name the apiserver Service [$svc_name] on 8080"
+    return 0
+  fi
+  ok "$profile: support-bundle Job: backoffLimit 0, no TTL, no hook, no credential env, KUBEXA_NAMESPACE from fieldRef, /kubexa-supportbundle with all eight arguments, --apiserver-url -> $svc_name"
+}
+
+# supportBundle.rbac.create=false: ServiceAccount and Job survive, Role and
+# RoleBinding vanish, and the Job still runs as the ServiceAccount that exists.
+assert_supportbundle_rbac_create_false_is_coherent() {
+  local out=$1 profile=$2
+  [ "$profile" = "supportbundle" ] || return 0
+  local res sb kinds sa job_sa
+  if ! res=$(helm template kubexa "$CHART" -f "$PROFILES_DIR/supportbundle.yaml" --set supportBundle.rbac.create=false 2>&1); then
+    fail "$profile: --set supportBundle.rbac.create=false failed to render: ${res:0:300}"
+    return 0
+  fi
+  sb=$(extract_source "$res" "kubexa/templates/supportbundle.yaml")
+  kinds=$(grep -E '^kind:' <<< "$sb" | awk '{print $2}' | sort | tr '\n' ' ')
+  if [ "$kinds" != "Job ServiceAccount " ]; then
+    fail "$profile: with supportBundle.rbac.create=false supportbundle.yaml renders [$kinds], expected exactly Job ServiceAccount"
+    return 0
+  fi
+  sa=$(awk '/^kind: ServiceAccount$/ {f=1} f && /^  name:/ {print $2; exit}' <<< "$sb")
+  job_sa=$(grep -E '^[[:space:]]+serviceAccountName:' <<< "$sb" | awk '{print $2}')
+  if [ -z "$sa" ] || [ "$sa" != "$job_sa" ]; then
+    fail "$profile: with supportBundle.rbac.create=false the Job runs as [$job_sa] but the ServiceAccount is [$sa]"
+    return 0
+  fi
+  ok "$profile: supportBundle.rbac.create=false renders only the Job and its ServiceAccount (no dangling binding)"
+}
+
+# The default must render nothing for the support bundle.
+assert_no_supportbundle_unless_asked() {
+  local out=$1 profile=$2
+  [ "$profile" = "supportbundle" ] && return 0
+  if grep -qF '# Source: kubexa/templates/supportbundle.yaml' <<< "$out"; then
+    fail "$profile: supportbundle.yaml rendered a document with supportBundle.enabled unset"
+    return 0
+  fi
+  if grep -q 'kubexa-support-bundle' <<< "$out"; then
+    fail "$profile: supportbundle.yaml rendered nothing, but something else in this render names kubexa-support-bundle"
+    return 0
+  fi
+  ok "$profile: no supportbundle objects"
+}
+
+# The schema rejects an unknown key, and types the two duration values as
+# strings and the other tuning values as integers: a quote changes the accepted
+# type, and a wrong one is a render-time fatal. Renders independently of $out.
+assert_supportbundle_schema_types() {
+  local out=$1 profile=$2
+  [ "$profile" = "default" ] || return 0
+  local res
+  if res=$(helm template kubexa "$CHART" -f "$PROFILES_DIR/default.yaml" --set supportBundle.enabledd=true 2>&1); then
+    fail "$profile: --set supportBundle.enabledd=true rendered successfully -- the schema no longer rejects unknown supportBundle keys"
+  elif grep -qF 'enabledd' <<< "$res"; then
+    ok "$profile: the schema rejects an unknown supportBundle key"
+  else
+    fail "$profile: --set supportBundle.enabledd=true failed, but not on the key itself: ${res:0:300}"
+  fi
+  if res=$(helm template kubexa "$CHART" -f "$PROFILES_DIR/default.yaml" --set supportBundle.timeout=240 2>&1); then
+    fail "$profile: supportBundle.timeout=240 (an integer) rendered -- the schema must type timeout as a string"
+  elif grep -qF 'timeout' <<< "$res"; then
+    ok "$profile: the schema types supportBundle.timeout as a string"
+  else
+    fail "$profile: supportBundle.timeout=240 failed, but not on the key itself: ${res:0:300}"
+  fi
+  if res=$(helm template kubexa "$CHART" -f "$PROFILES_DIR/default.yaml" --set-string supportBundle.tailLines=200 2>&1); then
+    fail "$profile: supportBundle.tailLines=\"200\" (a string) rendered -- the schema must type tailLines as an integer"
+  elif grep -qF 'tailLines' <<< "$res"; then
+    ok "$profile: the schema types supportBundle.tailLines as an integer"
+  else
+    fail "$profile: supportBundle.tailLines=\"200\" failed, but not on the key itself: ${res:0:300}"
+  fi
+}
+
 # Every OTHER profile must render no preflight at all. This is the assertion
 # that would catch a dropped `enabled` gate, which would otherwise ship the
 # Job into every install silently.

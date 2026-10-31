@@ -26,6 +26,35 @@
         }
       }
     },
+    "supportBundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": { "type": "string", "minLength": 1 },
+            "tag": { "type": "string", "minLength": 1 },
+            "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] }
+          }
+        },
+        "activeDeadlineSeconds": { "type": "integer", "minimum": 1 },
+        "resources": { "type": "object" },
+        "rbac": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "create": { "type": "boolean" } }
+        },
+        "timeout": { "type": "string", "minLength": 1 },
+        "logReadTimeout": { "type": "string", "minLength": 1 },
+        "tailLines": { "type": "integer", "minimum": 1 },
+        "limitBytes": { "type": "integer", "minimum": 1 },
+        "maxEvents": { "type": "integer", "minimum": 1 },
+        "byteCeiling": { "type": "integer", "minimum": 1 }
+      }
+    },
     "selftest": {
       "type": "object",
       "additionalProperties": false,

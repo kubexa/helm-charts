@@ -1525,6 +1525,60 @@ preflight:
   serviceAccount:
     name: kubexa-preflight
 
+# ── supportBundle ────────────────────────────────────────────────────────────
+# A collector the operator runs by hand when something is wrong: one Job, plus a
+# ServiceAccount and a namespaced, read-only Role, that prints one bounded,
+# masked text report on stdout for `kubectl logs`. It renders no verdict and
+# exits 0 whenever it produced a bundle, so a successful Job says nothing about
+# the install -- see docs/operations/support-bundle.md in the product repo.
+supportBundle:
+  # false: the Job is run by hand, so nothing about `helm install` or
+  # `helm upgrade` should create it. Its Role reads any pod's log in the
+  # namespace. It carries no Helm hook annotations and must never become one.
+  enabled: false
+  image:
+    repository: ghcr.io/kubexa/kubexa-backend
+    # Held at the same value as selftest.image.tag; they are bumped together.
+    #
+    # TRAP: NO published image contains /kubexa-supportbundle yet. Enabling
+    # this Job against any image published to date starts a container whose
+    # command does not exist. The first image that will contain it is the next
+    # release cut from feat/a3.1-support-bundle in kubexa-backend. Until that
+    # release exists and this tag is moved to it, rendering this Job is safe
+    # and running it is not.
+    #
+    # This value and the apiserver subchart's appVersion must still be bumped in
+    # the SAME commit: the render assertion compares them to each other, so it
+    # catches them diverging and stays silent when both lag.
+    tag: "0.5.65"
+    pullPolicy: IfNotPresent
+  # activeDeadlineSeconds must stay comfortably ABOVE timeout, because this
+  # deadline DELETES the pod -- and with it the bundle in its log. 600 against
+  # a 240s run bound leaves six minutes of headroom. Raise them together.
+  activeDeadlineSeconds: 600
+  # No ttlSecondsAfterFinished on purpose: the log is the bundle, and it lives
+  # until the Job is deleted.
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+  rbac:
+    # false renders the ServiceAccount and the Job but neither the Role nor the
+    # RoleBinding, for an installing identity that may not create them (same
+    # shape as preflight.rbac.create and selftest.rbac.create). Until the
+    # operator binds an equivalent Role, the reads are refused.
+    create: true
+  # The command's own flags. timeout and logReadTimeout are STRINGS (Go
+  # durations); the rest are integers.
+  timeout: "240s"
+  logReadTimeout: "10s"
+  tailLines: 200
+  limitBytes: 262144
+  maxEvents: 200
+  byteCeiling: 4194304
+
 # ── selftest ─────────────────────────────────────────────────────────────────
 # A post-install check the OPERATOR runs by hand: it logs in, sends real
 # requests through the product's own endpoints and reports PASS / FAIL / SKIP

@@ -743,7 +743,22 @@ type: application
 # 90s: if the Job controller deletes the pod first, it deletes the report with
 # it. Rolling back to 0.8.24 returns a Job with no RBAC and no namespace, whose
 # installed-image check SKIPs.
-version: 0.8.25
+#
+# 0.8.26 adds the support-bundle Job, off by default: supportBundle.enabled
+# renders a ServiceAccount, a namespaced read-only Role, its RoleBinding and one
+# Job (templates/supportbundle.yaml) that prints a bounded, masked text report
+# for `kubectl logs`. The Role lists the five workload kinds, pods and events
+# and gets pods/log -- no secrets, no write verb. supportBundle.rbac.create
+# (default true) can be set false to render the ServiceAccount and the Job
+# without the Role and RoleBinding. The Job gets no credential environment.
+#
+# supportBundle.image.tag is held at selftest.image.tag, and NO published image
+# contains /kubexa-supportbundle yet: enabling the Job before the kubexa-backend
+# release that carries it starts a container whose command does not exist.
+# supportBundle.activeDeadlineSeconds must stay above the command's --timeout.
+# Nothing renders unless enabled, so rolling back to 0.8.25 changes no install
+# that did not ask for the Job.
+version: 0.8.26
 appVersion: "0.1.0"
 keywords:
   - kubexa
