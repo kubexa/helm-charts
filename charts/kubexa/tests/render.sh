@@ -607,14 +607,93 @@ assert_supportbundle_mounts_the_deployments_secrets() {
     fail "$profile: supportbundle mounts [$sb_api] [$sb_agent] but the Deployments mount [$dep_api] [$dep_agent] -- kubexa.subchartFullname no longer matches the subchart's fullname"
     return 0
   fi
-  local optional ro
-  optional=$(grep -cE '^[[:space:]]+optional: true$' <<< "$sb" || true)
+  # Counted inside the volumes block only. This used to count the whole
+  # document and expect 2, which was right only while nothing else in the Job
+  # was optional -- the two credential secretKeyRefs added in chart 0.8.26 are
+  # also optional: true, and a document-wide count read 4 and failed on a
+  # correct render. Scope the count to what the assertion is about.
+  local volumes optional ro
+  volumes=$(awk '/^      volumes:$/ {v=1} v' <<< "$sb")
+  optional=$(grep -cE '^[[:space:]]+optional: true$' <<< "$volumes" || true)
   ro=$(grep -cE '^[[:space:]]+readOnly: true$' <<< "$sb" || true)
   if [ "$optional" != "2" ] || [ "$ro" != "2" ]; then
-    fail "$profile: expected both config Secret volumes optional: true and both mounts readOnly: true, found optional=$optional readOnly=$ro"
+    fail "$profile: expected both config Secret volumes optional: true and both mounts readOnly: true, found optional=$optional (in volumes) readOnly=$ro"
     return 0
   fi
   ok "$profile: supportbundle mounts the Deployments' config Secrets ($sb_api, $sb_agent), read-only and optional"
+}
+
+# The two credentials the Job is given, and the fact that it is given no
+# others. Three separate claims, each of which has its own failure:
+#
+#   - both are present: without them the database readings section cannot
+#     connect on a default install and three of nine sections lose their value.
+#   - both are optional: a non-optional secretKeyRef whose Secret is absent
+#     fails the pod with CreateContainerConfigError, so the command written to
+#     explain a broken install would be the thing that will not start.
+#   - there is no THIRD credential: this Job's whole masking design rests on
+#     default-deny, and an env var nobody reviewed is how that gets undone.
+#
+# The names are read from the apiserver's own Deployment rather than written
+# here, for the same reason the config-Secret assertion does it: a literal
+# would stay green if the chart started pointing the two at different Secrets.
+assert_supportbundle_credentials() {
+  local out=$1 profile=$2
+  [ "$profile" = "supportbundle" ] || return 0
+  local sb api env_block
+  sb=$(extract_source "$out" "kubexa/templates/supportbundle.yaml")
+  api=$(extract_source "$out" "kubexa/charts/apiserver/templates/deployment.yaml")
+  env_block=$(awk '/^          env:$/ {e=1; next} e && /^          [a-z]/ {e=0} e' <<< "$sb")
+
+  local sb_names dep_names v
+  for v in KUBEXA_APISERVER_POSTGRES_APP_PASSWORD KUBEXA_APISERVER_POSTGRES_USERS_PASSWORD; do
+    # The var's own block, so "declared but not optional" and "not declared at
+    # all" are two different findings with two different messages. They were one
+    # message in the first draft of this assertion, which reported a missing
+    # optional as a missing variable -- true that something was wrong, wrong
+    # about what.
+    local block name key optional
+    block=$(awk -v want="- name: $v" '
+      index($0, want) {g=1; next}
+      g && /- name: / {exit}
+      g' <<< "$env_block")
+    if [ -z "$block" ]; then
+      fail "$profile: the Job declares no $v at all -- the database readings section cannot connect without it, and the bundle's cross-field HMAC comparison has nothing to compare"
+      return 0
+    fi
+    name=$(awk '/name:/ {print $2; exit}' <<< "$block")
+    key=$(awk '/key:/ {print $2; exit}' <<< "$block")
+    optional=$(awk '/optional:/ {print $2; exit}' <<< "$block")
+    if [ -z "$name" ] || [ -z "$key" ]; then
+      fail "$profile: $v is declared but names no Secret and key (name=[$name] key=[$key])"
+      return 0
+    fi
+    if [ "$optional" != "true" ]; then
+      fail "$profile: $v has optional=[$optional], expected true -- a non-optional secretKeyRef whose Secret is absent fails this pod with CreateContainerConfigError, which would mean the one command written to explain a broken install is itself the thing that will not start"
+      return 0
+    fi
+    sb_names="$sb_names $name/$key"
+    local dep
+    dep=$(awk -v want="- name: $v" '
+      index($0, want) {g=1; next}
+      g && /- name: / {exit}
+      g && /name:/ {n=$2}
+      g && /key:/ {print n "/" $2; exit}' <<< "$api")
+    if [ -z "$dep" ]; then
+      fail "$profile: the apiserver Deployment declares no $v, so this assertion cannot compare the Job against it"
+      return 0
+    fi
+    dep_names="$dep_names $dep"
+  done
+
+  if [ "$sb_names" != "$dep_names" ]; then
+    fail "$profile: the Job reads [$sb_names] but the apiserver Deployment reads [$dep_names] -- the two are pointed at different Secrets, so the bundle would read a credential the apiserver does not use"
+    return 0
+  fi
+
+  # "no third credential" is asserted by assert_supportbundle_job_shape, which
+  # pins the exact env name list -- stronger than a count and already there.
+  ok "$profile: the Job is given exactly the two Postgres passwords the apiserver uses, both optional, and nothing else"
 }
 
 # The Role, to the letter: a namespaced Role, exactly the five rules plus
@@ -696,8 +775,13 @@ assert_supportbundle_job_shape() {
     fail "$profile: support-bundle backoffLimit is not 0 -- a retry writes a second bundle into a second pod's log"
     return 0
   fi
-  if grep -qE 'ttlSecondsAfterFinished|helm.sh/hook|secretKeyRef' <<< "$sb"; then
-    fail "$profile: the support-bundle Job carries a TTL (it would delete the log), a Helm hook annotation or a secretKeyRef (a credential env block)"
+  # secretKeyRef was in this prohibition until chart 0.8.26, when the Job was
+  # deliberately given two credentials. What governs them now is
+  # assert_supportbundle_credentials, which is stricter than a ban: it pins
+  # which two, that both are optional, and that there is no third. The TTL and
+  # the Helm hook remain prohibited outright.
+  if grep -qE 'ttlSecondsAfterFinished|helm.sh/hook' <<< "$sb"; then
+    fail "$profile: the support-bundle Job carries a TTL (it would delete the log) or a Helm hook annotation (a failing hook fails the release, and this Job is run by hand)"
     return 0
   fi
   if ! grep -A3 'name: KUBEXA_NAMESPACE' <<< "$sb" | grep -qF 'fieldPath: metadata.namespace'; then
@@ -710,8 +794,12 @@ assert_supportbundle_job_shape() {
   fi
   local env_names
   env_names=$(grep -E '^[[:space:]]+- name: [A-Z_]+$' <<< "$sb" | awk '{print $3}' | tr '\n' ' ' || true)
-  if [ "$env_names" != "KUBEXA_NAMESPACE " ]; then
-    fail "$profile: the Job's environment is [$env_names], expected only KUBEXA_NAMESPACE"
+  # The exact list, in order. A new name here is a new path into a bundle whose
+  # configuration masking is default-deny, so it is added deliberately or not
+  # at all. assert_supportbundle_credentials pins what the two passwords point
+  # at and that both are optional.
+  if [ "$env_names" != "KUBEXA_NAMESPACE KUBEXA_APISERVER_POSTGRES_APP_PASSWORD KUBEXA_APISERVER_POSTGRES_USERS_PASSWORD " ]; then
+    fail "$profile: the Job's environment is [$env_names], expected exactly KUBEXA_NAMESPACE and the two Postgres passwords"
     return 0
   fi
   local flag
@@ -729,7 +817,7 @@ assert_supportbundle_job_shape() {
     fail "$profile: --apiserver-url does not name the apiserver Service [$svc_name] on 8080"
     return 0
   fi
-  ok "$profile: support-bundle Job: backoffLimit 0, no TTL, no hook, no credential env, KUBEXA_NAMESPACE from fieldRef, /kubexa-supportbundle with all eight arguments, --apiserver-url -> $svc_name"
+  ok "$profile: support-bundle Job: backoffLimit 0, no TTL, no hook, exactly three env names, KUBEXA_NAMESPACE from fieldRef, /kubexa-supportbundle with all eight arguments, --apiserver-url -> $svc_name"
 }
 
 # Properties nothing else pins: the key->config.yaml rename in both volumes

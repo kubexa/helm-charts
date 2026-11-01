@@ -1506,7 +1506,7 @@ preflight:
     # not, which is what this value said until chart 0.8.21. Chart 0.8.22 moves
     # this to 0.5.64 with the apiserver pin; 0.5.63 stays the floor below which
     # the binary does not exist at all.
-    tag: "0.5.65"
+    tag: "0.5.66"
   # How long a probe volume may take to bind before the storage check calls it
   # a failure.
   pvcTimeoutSeconds: 60
@@ -1540,16 +1540,18 @@ supportBundle:
     repository: ghcr.io/kubexa/kubexa-backend
     # Held at the same value as selftest.image.tag; they are bumped together.
     #
-    # TRAP: NO published image contains /kubexa-supportbundle yet. Enabling
-    # this Job against any image published to date starts a container whose
-    # command does not exist. The first image that will contain it is the next
-    # kubexa-backend release. Until that release exists and this tag is moved
-    # to it, rendering this Job is safe and running it is not.
+    # 0.5.66 is the FIRST image that contains /kubexa-supportbundle, and this
+    # value moved to it in the same commit as the dependency bump that carries
+    # it. Below 0.5.66 this Job starts a container whose command does not
+    # exist, so 0.5.66 is the floor for enabling it at all -- not a
+    # recommendation. That was the open TRAP in chart 0.8.26's first draft,
+    # written while no published image held the binary; it is now closed by the
+    # kubexa-backend v0.5.66 release.
     #
     # This value and the apiserver subchart's appVersion must still be bumped in
     # the SAME commit: the render assertion compares them to each other, so it
     # catches them diverging and stays silent when both lag.
-    tag: "0.5.65"
+    tag: "0.5.66"
     pullPolicy: IfNotPresent
   # activeDeadlineSeconds must stay comfortably ABOVE timeout, because this
   # deadline DELETES the pod -- and with it the bundle in its log. 600 against
@@ -1605,7 +1607,7 @@ selftest:
     # This value and the apiserver subchart's appVersion must still be bumped in
     # the SAME commit: the render assertion compares them to each other, so it
     # catches them diverging and stays silent when both lag.
-    tag: "0.5.65"
+    tag: "0.5.66"
     pullPolicy: IfNotPresent
   # The Job's own ceiling. The binary bounds the whole run with its --timeout;
   # this is the backstop if the process itself hangs.
