@@ -71,6 +71,15 @@ kubexa-selftest
 {{- end }}
 
 {{/*
+The support bundle's own name. A literal, like the two above: the runbook's
+cleanup command names it (docs/operations/support-bundle.md), so it is not
+derived from anything.
+*/}}
+{{- define "kubexa.supportBundleFullname" -}}
+kubexa-support-bundle
+{{- end }}
+
+{{/*
 A subchart's fullname, rebuilt from the PARENT's context.
 
 This does NOT call "kubexa-apiserver.fullname" and could not: a named template

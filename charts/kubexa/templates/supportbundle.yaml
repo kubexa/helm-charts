@@ -1,0 +1,271 @@
+{{- if .Values.supportBundle.enabled }}
+{{- /*
+One Job, and the ServiceAccount, Role and RoleBinding that let it READ its own
+namespace: the inventory of the five workload kinds, the pods, their events
+and their logs. It prints one bounded, masked text report on stdout, which the
+operator captures with `kubectl logs`. docs/operations/support-bundle.md in the
+product repo is the contract this file satisfies; where they disagree, this
+file changes.
+
+It renders no verdict and exits 0 whenever it produced a bundle, so a Job that
+completed says nothing about the install.
+
+The Role is a Role, never a ClusterRole: the Job reads its own namespace, so a
+cluster-wide grant would be authority the command never uses. It grants "list"
+on deployments, statefulsets, daemonsets, jobs, cronjobs, pods and events, and
+"get" on pods/log -- and nothing else. No secrets: the values passed to
+`helm install` live in the release Secret, which embeds the data of every Secret
+this chart creates, and a collector does not need that. No write verb and no
+pods/exec. pods/log is a real privilege all the same: it reads ANY pod's log in
+this namespace. That is the command's purpose, and the runbook names it so an
+operator knows before enabling the Job. tests/render.sh fails if the verbs, the
+resources or the kind change.
+
+supportBundle.rbac.create=false renders the ServiceAccount and the Job but
+neither the Role nor the RoleBinding, for an installing identity that may not
+create them (same shape as preflight.rbac.create and selftest.rbac.create).
+Until the operator binds an equivalent Role, the reads are refused and the
+bundle's health section counts the refusals.
+
+The Job is given exactly TWO credentials, the same two the self-test gets: the
+app and users Postgres passwords, by reference, optional. Everything else it
+needs it reads from files, the Kubernetes API and one unauthenticated health
+endpoint, and no Secret is rendered next to it.
+
+Those two are here because without them the database readings section cannot
+connect on the install this chart recommends, and three of the nine sections
+lose their value rather than one: the schema heads and the fleet list answer
+nothing, and the cross-field HMAC comparison -- which is what makes a shape
+line useful, since equal shapes prove two fields hold the same value -- has
+nothing to compare. The privilege is not new in kind: this Job already holds
+get pods/log on every pod in this namespace, which is strictly larger than two
+database passwords. Neither value can print: configuration masking is
+default-deny, so a field reaches the bundle only if its path is allowlisted and
+then still passes the redactor, and a password path is in neither category.
+
+optional: true on both, deliberately. A secretKeyRef that is NOT optional fails
+the pod with CreateContainerConfigError when the Secret is absent -- so an
+install that keeps its passwords elsewhere would find that the one command
+written to explain a broken install is itself the thing that will not start.
+Absent, the env is simply unset, the section says it could not connect, and the
+rest of the bundle is unaffected. A configuration field that reaches the process
+ONLY through an environment variable this Job is not given still reads EMPTY in
+the bundle, and the bundle says so rather than calling it unset.
+
+The deadlines: the command bounds ITSELF with --timeout (240s by default) and
+checks that bound between sections, so it prints its trailer well inside the
+Job's activeDeadlineSeconds (600s: six minutes of headroom). The order matters
+because a Job deadline that fires DELETES the pod, and the bundle is in the
+pod's log -- that happened to a self-test run on 2026-10-23. Streaming means a
+run cut between sections has already delivered everything above the cut; it
+cannot save a bundle whose pod is gone, which is why the command's own bound is
+the primary one and the Job's is the backstop.
+
+No ttlSecondsAfterFinished: the log is the bundle, and it lives until the Job is
+deleted. No Helm hook annotations, on purpose and permanently: a hook that
+fails fails the release, and this Job is run by hand.
+
+The namespace comes from the downward API (KUBEXA_NAMESPACE), not from
+.Release.Namespace: the value is then the namespace the pod actually runs in
+and cannot drift from a hand-set one.
+
+Every name below is built from .Release.Name and the subchart alias by
+"kubexa.subchartFullname" -- never by calling a subchart helper. tests/render.sh
+pins the result against the rendered Deployments.
+*/ -}}
+{{- $apiName := include "kubexa.subchartFullname" (dict "root" . "alias" "apiserver" "values" .Values.apiserver) }}
+{{- $agentName := include "kubexa.subchartFullname" (dict "root" . "alias" "agentserver" "values" .Values.agentserver) }}
+{{- $api := .Values.apiserver }}
+{{- $agent := .Values.agentserver }}
+{{- /* The key INSIDE each config Secret is the subchart's own value too:
+existingSecretKey renames it, and with optional: true a hardcoded key would
+project nothing and fail silently at config load. */ -}}
+{{- $apiConfigKey := ($api.configSecret).existingSecretKey | default "apiserver.yaml" }}
+{{- $agentConfigKey := ($agent.configSecret).existingSecretKey | default "agentserver.yaml" }}
+{{- $apiConfigSecret := ternary $api.configSecret.existingSecret (printf "%s-config" $apiName) (not (empty (($api.configSecret).existingSecret))) }}
+{{- $agentConfigSecret := ternary $agent.configSecret.existingSecret (printf "%s-config" $agentName) (not (empty (($agent.configSecret).existingSecret))) }}
+{{- $apiHTTPPort := (($api.service).httpPort) | default 8080 }}
+{{- /* Same two definitions selftest.yaml uses, for the same reason: the
+credential references live under apiserver.secrets, and when none is set the
+apiserver's own keys Secret is where this chart wrote them. */ -}}
+{{- $apiSecrets := $api.secrets | default dict }}
+{{- $apiKeys := ternary $apiSecrets.existingSecret (printf "%s-keys" $apiName) (not (empty $apiSecrets.existingSecret)) }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "kubexa.supportBundleFullname" . }}
+  labels:
+    app.kubernetes.io/name: kubexa-support-bundle
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- if .Values.supportBundle.rbac.create }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kubexa.supportBundleFullname" . }}
+  labels:
+    app.kubernetes.io/name: kubexa-support-bundle
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+rules:
+  # the inventory and the version reading
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets"]
+    verbs: ["list"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["list"]
+  # what each pod is doing, and why its last instance died
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+  # the bounded log tails. This is a real privilege: it reads ANY pod's log in
+  # this namespace. That is the command's purpose; docs/operations/support-bundle.md
+  # names it so an operator knows before enabling the Job.
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kubexa.supportBundleFullname" . }}
+  labels:
+    app.kubernetes.io/name: kubexa-support-bundle
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kubexa.supportBundleFullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kubexa.supportBundleFullname" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "kubexa.supportBundleFullname" . }}
+  labels:
+    app.kubernetes.io/name: kubexa-support-bundle
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  # 0, not the default 6: a retry writes a second bundle into a second pod's
+  # log, and `kubectl logs job/...` does not say which pod it read.
+  backoffLimit: 0
+  # Must stay comfortably above the command's --timeout: see the top of this file.
+  activeDeadlineSeconds: {{ .Values.supportBundle.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kubexa-support-bundle
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "kubexa.supportBundleFullname" . }}
+      # The Kubernetes reads need the token.
+      automountServiceAccountToken: true
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: supportbundle
+          image: "{{ .Values.supportBundle.image.repository }}:{{ .Values.supportBundle.image.tag }}"
+          imagePullPolicy: {{ .Values.supportBundle.image.pullPolicy }}
+          command: ["/kubexa-supportbundle"]
+          args:
+            - --apiserver-config=/etc/kubexa/apiserver/config.yaml
+            - --agentserver-config=/etc/kubexa/agentserver/config.yaml
+            - --apiserver-url=http://{{ $apiName }}.{{ .Release.Namespace }}.svc:{{ $apiHTTPPort }}
+            # int64: helm decodes numbers as float64, and 4194304 would render as
+            # 4.194304e+06, which the command's integer flag refuses.
+            - --tail-lines={{ .Values.supportBundle.tailLines | int64 }}
+            - --limit-bytes={{ .Values.supportBundle.limitBytes | int64 }}
+            - --max-events={{ .Values.supportBundle.maxEvents | int64 }}
+            - --byte-ceiling={{ .Values.supportBundle.byteCeiling | int64 }}
+            - --timeout={{ .Values.supportBundle.timeout }}
+            - --log-read-timeout={{ .Values.supportBundle.logReadTimeout }}
+          env:
+            # The namespace this pod runs in, from the API server's own record
+            # of it.
+            - name: KUBEXA_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # The two Postgres passwords, by reference and optional, in the same
+            # shape the self-test Job declares them -- including the fallback to
+            # the apiserver's own keys Secret when no explicit reference is set,
+            # because that is where this chart puts them on a default install.
+            # See the header for why these two and nothing else, and why
+            # optional is load-bearing rather than defensive.
+            - name: KUBEXA_APISERVER_POSTGRES_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  {{- if (($apiSecrets.postgresAppPasswordSecret).name) }}
+                  name: {{ $apiSecrets.postgresAppPasswordSecret.name }}
+                  key: {{ $apiSecrets.postgresAppPasswordSecret.key }}
+                  {{- else }}
+                  name: {{ $apiKeys }}
+                  key: postgres-app-password
+                  {{- end }}
+                  optional: true
+            - name: KUBEXA_APISERVER_POSTGRES_USERS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  {{- if (($apiSecrets.postgresUsersPasswordSecret).name) }}
+                  name: {{ $apiSecrets.postgresUsersPasswordSecret.name }}
+                  key: {{ $apiSecrets.postgresUsersPasswordSecret.key }}
+                  {{- else }}
+                  name: {{ $apiKeys }}
+                  key: postgres-users-password
+                  {{- end }}
+                  optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          {{- with .Values.supportBundle.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: apiserver-config
+              mountPath: /etc/kubexa/apiserver
+              readOnly: true
+            - name: agentserver-config
+              mountPath: /etc/kubexa/agentserver
+              readOnly: true
+      volumes:
+        # optional: a missing Secret yields a bundle that says so, not a pod
+        # that never starts. The Secrets hold the key apiserver.yaml /
+        # agentserver.yaml; items renames it to the config.yaml the binary's
+        # flag defaults name.
+        - name: apiserver-config
+          secret:
+            secretName: {{ $apiConfigSecret }}
+            optional: true
+            items:
+              - key: {{ $apiConfigKey }}
+                path: config.yaml
+        - name: agentserver-config
+          secret:
+            secretName: {{ $agentConfigSecret }}
+            optional: true
+            items:
+              - key: {{ $agentConfigKey }}
+                path: config.yaml
+{{- end }}

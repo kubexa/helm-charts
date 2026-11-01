@@ -743,7 +743,47 @@ type: application
 # 90s: if the Job controller deletes the pod first, it deletes the report with
 # it. Rolling back to 0.8.24 returns a Job with no RBAC and no namespace, whose
 # installed-image check SKIPs.
-version: 0.8.25
+#
+# 0.8.25 was NEVER PUBLISHED. It was finished and held back because this repo
+# runs helm push on any main push touching charts/, and the self-test checks it
+# enables did not exist in any published image at the time. 0.8.26 supersedes it
+# and carries both changes; the registry goes 0.8.24 -> 0.8.26.
+#
+# 0.8.26 adds the support-bundle Job, off by default: supportBundle.enabled
+# renders a ServiceAccount, a namespaced read-only Role, its RoleBinding and one
+# Job (templates/supportbundle.yaml) that prints a bounded, masked text report
+# for `kubectl logs`. The Role lists the five workload kinds, pods and events
+# and gets pods/log -- no secrets, no write verb. supportBundle.rbac.create
+# (default true) can be set false to render the ServiceAccount and the Job
+# without the Role and RoleBinding.
+#
+# The Job is given two credentials and no others: the app and users Postgres
+# passwords, by reference, optional: true on both. Without them the bundle's
+# database readings section cannot connect on the install this chart
+# recommends, and three of its nine sections lose their value -- the schema
+# heads, the fleet list, and the cross-field HMAC comparison that makes a
+# masked shape line useful. The privilege is not new in kind: the Job already
+# holds get pods/log on every pod in this namespace, which is strictly larger.
+# Neither value can print, because configuration masking is default-deny.
+# optional: true is load-bearing: a non-optional secretKeyRef whose Secret is
+# absent fails the pod with CreateContainerConfigError, which would mean the
+# one command written to explain a broken install is itself the thing that will
+# not start.
+#
+# This version also moves kubexa-apiserver to 0.4.75 and kubexa-agentserver to
+# 0.2.55, so the namespace runs image 0.5.66, and moves all three Job image
+# pins (preflight, selftest, supportBundle) to 0.5.66 in the same commit. That
+# is required, not tidy: 0.5.66 is the first image containing
+# /kubexa-supportbundle and the first whose /kubexa-selftest runs the two
+# version-matrix checks 0.8.25 added the Role for. Below it the support-bundle
+# Job starts a container whose command does not exist, and those two self-test
+# checks are absent from the binary entirely.
+#
+# supportBundle.activeDeadlineSeconds must stay above the command's --timeout.
+# The support-bundle Job renders only when enabled, so rolling back to 0.8.24
+# changes no install that did not ask for it; it does return the namespace to
+# image 0.5.65, whose self-test does not run checks 11 and 12.
+version: 0.8.26
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -1460,7 +1500,7 @@ dependencies:
     # starts a container that cannot start. tests/render.sh asserts
     # preflight.image.tag equals the image this pin renders, which is why the
     # two move in one commit.
-    version: "0.4.74"
+    version: "0.4.75"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -1772,7 +1812,7 @@ dependencies:
     # HTTP concern and no agentserver path calls it. DO NOT INSTALL 0.2.51
     # either, for the same reason as apiserver 0.4.70 -- it names the never-built
     # 0.5.61.
-    version: "0.2.54"
+    version: "0.2.55"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer

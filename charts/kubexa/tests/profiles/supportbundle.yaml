@@ -1,0 +1,20 @@
+# The default profile with the support-bundle Job turned on. It exists so
+# render.sh can assert the Job at all: every other profile proves the opposite,
+# that a normal install renders none of it. Without this profile the
+# supportbundle assertions below would run zero times and still pass.
+app:
+  ingress:
+    enabled: true
+    host: kubexa.example.com
+apiserver:
+  ingress:
+    enabled: true
+    host: kubexa.example.com
+  config:
+    corsAllowedOrigins:
+      - https://kubexa.example.com
+    ws:
+      origins:
+        - https://kubexa.example.com
+supportBundle:
+  enabled: true

@@ -1506,7 +1506,7 @@ preflight:
     # not, which is what this value said until chart 0.8.21. Chart 0.8.22 moves
     # this to 0.5.64 with the apiserver pin; 0.5.63 stays the floor below which
     # the binary does not exist at all.
-    tag: "0.5.65"
+    tag: "0.5.66"
   # How long a probe volume may take to bind before the storage check calls it
   # a failure.
   pvcTimeoutSeconds: 60
@@ -1524,6 +1524,61 @@ preflight:
     create: true
   serviceAccount:
     name: kubexa-preflight
+
+# ── supportBundle ────────────────────────────────────────────────────────────
+# A collector the operator runs by hand when something is wrong: one Job, plus a
+# ServiceAccount and a namespaced, read-only Role, that prints one bounded,
+# masked text report on stdout for `kubectl logs`. It renders no verdict and
+# exits 0 whenever it produced a bundle, so a successful Job says nothing about
+# the install -- see docs/operations/support-bundle.md in the product repo.
+supportBundle:
+  # false: the Job is run by hand, so nothing about `helm install` or
+  # `helm upgrade` should create it. Its Role reads any pod's log in the
+  # namespace. It carries no Helm hook annotations and must never become one.
+  enabled: false
+  image:
+    repository: ghcr.io/kubexa/kubexa-backend
+    # Held at the same value as selftest.image.tag; they are bumped together.
+    #
+    # 0.5.66 is the FIRST image that contains /kubexa-supportbundle, and this
+    # value moved to it in the same commit as the dependency bump that carries
+    # it. Below 0.5.66 this Job starts a container whose command does not
+    # exist, so 0.5.66 is the floor for enabling it at all -- not a
+    # recommendation. That was the open TRAP in chart 0.8.26's first draft,
+    # written while no published image held the binary; it is now closed by the
+    # kubexa-backend v0.5.66 release.
+    #
+    # This value and the apiserver subchart's appVersion must still be bumped in
+    # the SAME commit: the render assertion compares them to each other, so it
+    # catches them diverging and stays silent when both lag.
+    tag: "0.5.66"
+    pullPolicy: IfNotPresent
+  # activeDeadlineSeconds must stay comfortably ABOVE timeout, because this
+  # deadline DELETES the pod -- and with it the bundle in its log. 600 against
+  # a 240s run bound leaves six minutes of headroom. Raise them together.
+  activeDeadlineSeconds: 600
+  # No ttlSecondsAfterFinished on purpose: the log is the bundle, and it lives
+  # until the Job is deleted.
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+  rbac:
+    # false renders the ServiceAccount and the Job but neither the Role nor the
+    # RoleBinding, for an installing identity that may not create them (same
+    # shape as preflight.rbac.create and selftest.rbac.create). Until the
+    # operator binds an equivalent Role, the reads are refused.
+    create: true
+  # The command's own flags. timeout and logReadTimeout are STRINGS (Go
+  # durations); the rest are integers.
+  timeout: "240s"
+  logReadTimeout: "10s"
+  tailLines: 200
+  limitBytes: 262144
+  maxEvents: 200
+  byteCeiling: 4194304
 
 # ── selftest ─────────────────────────────────────────────────────────────────
 # A post-install check the OPERATOR runs by hand: it logs in, sends real
@@ -1552,7 +1607,7 @@ selftest:
     # This value and the apiserver subchart's appVersion must still be bumped in
     # the SAME commit: the render assertion compares them to each other, so it
     # catches them diverging and stays silent when both lag.
-    tag: "0.5.65"
+    tag: "0.5.66"
     pullPolicy: IfNotPresent
   # The Job's own ceiling. The binary bounds the whole run with its --timeout;
   # this is the backstop if the process itself hangs.
