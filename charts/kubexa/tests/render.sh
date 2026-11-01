@@ -436,33 +436,92 @@ assert_selftest_durable_matches_consumer() {
   fi
 }
 
-# "One Job and no RBAC". Two claims: the self-test document holds nothing but
-# a Job, and no RBAC object anywhere in the render carries a selftest name.
-assert_selftest_has_no_rbac() {
+# The self-test's RBAC is the security boundary of this Job, so it is pinned
+# tightly. The self-test document must hold exactly ServiceAccount, Role,
+# RoleBinding and Job; the Role must be a namespaced Role with `list` as its
+# only verb on exactly the five workload kinds; no ClusterRole(Binding) may
+# carry a selftest name; and the Job must run as that ServiceAccount with
+# SELFTEST_NAMESPACE from the downward API. A Role that quietly gains get,
+# watch or a write verb, a sixth resource, or a cluster scope is what this
+# exists to catch. Herestrings only: see assert_bundled_vm for the SIGPIPE trap.
+assert_selftest_rbac_is_namespaced_and_list_only() {
   local out=$1 profile=$2
   [ "$profile" = "selftest" ] || return 0
-  local st kinds rbac
+  local st kinds role verbs groups resources cluster sa job_sa ref
   st=$(extract_source "$out" "kubexa/templates/selftest.yaml")
-  kinds=$(grep -E '^kind:' <<< "$st" | sort -u || true)
-  kinds=${kinds//$'\n'/ | }
-  if [ "$kinds" != "kind: Job" ]; then
-    fail "$profile: selftest.yaml renders [$kinds], expected only 'kind: Job'"
+  kinds=$(grep -E '^kind:' <<< "$st" | awk '{print $2}' | sort | tr '\n' ' ')
+  if [ "$kinds" != "Job Role RoleBinding ServiceAccount " ]; then
+    fail "$profile: selftest.yaml renders [$kinds], expected exactly Job Role RoleBinding ServiceAccount -- a ClusterRole or extra object would widen the self-test's authority"
     return 0
   fi
-  rbac=$(awk '
-    function flush() { if (kind ~ /^(ServiceAccount|Role|RoleBinding|ClusterRole|ClusterRoleBinding)$/ && name ~ /selftest/) print kind " " name }
-    /^---$/ { flush(); kind=""; name=""; inmeta=0; next }
-    /^kind:/ { kind=$2 }
-    /^metadata:/ { inmeta=1; next }
-    /^[a-zA-Z]/ { inmeta=0 }
-    inmeta && /^  name:/ && name == "" { name=$2 }
-    END { flush() }
-  ' <<< "$out")
-  if [ -n "$rbac" ]; then
-    fail "$profile: RBAC objects named for the self-test: ${rbac//$'\n'/ | } -- the design is one Job and no RBAC"
-  else
-    ok "$profile: no ServiceAccount/Role/Binding for the self-test"
+  # Anywhere in the render, not just this file: a ClusterRole smuggled in from
+  # another template under the self-test's name is the same widening.
+  cluster=$(awk '/^---$/ { if (k ~ /^ClusterRole(Binding)?$/ && n ~ /selftest/) print k " " n; k=""; n=""; m=0; next }
+    /^kind:/ { k=$2 } /^metadata:/ { m=1; next } /^[a-zA-Z]/ { m=0 } m && /^  name:/ && n=="" { n=$2 }
+    END { if (k ~ /^ClusterRole(Binding)?$/ && n ~ /selftest/) print k " " n }' <<< "$out")
+  if [ -n "$cluster" ]; then
+    fail "$profile: cluster-scoped RBAC named for the self-test (${cluster//$'\n'/ | }) -- the Role must stay namespaced"
+    return 0
   fi
+  role=$(awk '/^kind: Role$/ {f=1} /^---$/ {f=0} f' <<< "$st")
+  verbs=$(grep -E '^[[:space:]]+verbs:' <<< "$role" | sed 's/^[[:space:]]*verbs:[[:space:]]*//' | sort -u || true)
+  if [ "$verbs" != '["list"]' ]; then
+    fail "$profile: the self-test Role's verbs are [${verbs//$'\n'/ | }], expected only [\"list\"] -- get/watch/write would let a pod holding every platform credential read or change more than the one thing the installed-image check needs"
+    return 0
+  fi
+  groups=$(grep -E '^[[:space:]]+- apiGroups:' <<< "$role" | sed 's/^[[:space:]]*- apiGroups:[[:space:]]*//' | sort -u || true)
+  if [ "$groups" != $'["apps"]\n["batch"]' ]; then
+    fail "$profile: the self-test Role's apiGroups are [${groups//$'\n'/ | }], expected exactly [\"apps\"] and [\"batch\"] -- a wildcard or extra group widens what the same resource names match"
+    return 0
+  fi
+  resources=$(grep -E '^[[:space:]]+resources:' <<< "$role" | sed 's/^[[:space:]]*resources:[[:space:]]*//' | tr -d '[]" ' | tr ',' '\n' | sort | tr '\n' ' ')
+  if [ "$resources" != "cronjobs daemonsets deployments jobs statefulsets " ]; then
+    fail "$profile: the self-test Role's resources are [$resources], expected exactly cronjobs daemonsets deployments jobs statefulsets -- a new resource (secrets above all) is a grant the check does not need"
+    return 0
+  fi
+  ref=$(awk '/^roleRef:/ {f=1; next} /^[a-zA-Z]/ {f=0} f' <<< "$st")
+  if ! grep -qE '^[[:space:]]+kind: Role$' <<< "$ref"; then
+    fail "$profile: the RoleBinding's roleRef is not kind: Role"
+    return 0
+  fi
+  sa=$(awk '/^kind: ServiceAccount$/ {f=1} f && /^  name:/ {print $2; exit}' <<< "$st")
+  job_sa=$(grep -E '^[[:space:]]+serviceAccountName:' <<< "$st" | awk '{print $2}')
+  if [ -z "$sa" ] || [ "$sa" != "$job_sa" ]; then
+    fail "$profile: the Job runs as [$job_sa] but the ServiceAccount is [$sa]"
+    return 0
+  fi
+  if ! grep -A3 'name: SELFTEST_NAMESPACE' <<< "$st" | grep -qF 'fieldPath: metadata.namespace'; then
+    fail "$profile: SELFTEST_NAMESPACE is not taken from fieldRef metadata.namespace -- a templated value would be the chart's opinion of the namespace, not the pod's"
+    return 0
+  fi
+  ok "$profile: self-test RBAC is a namespaced Role, list-only on the five workload kinds, bound to the Job's ServiceAccount; SELFTEST_NAMESPACE from fieldRef"
+}
+
+# selftest.rbac.create=false must render coherently: the ServiceAccount and
+# the Job, no Role, no RoleBinding (a RoleBinding would dangle on a Role that
+# is not there), and the Job still runs as the ServiceAccount that exists.
+# Renders independently of $out, once, on the selftest profile.
+assert_selftest_rbac_create_false_is_coherent() {
+  local out=$1 profile=$2
+  [ "$profile" = "selftest" ] || return 0
+  local res st kinds sa job_sa
+  if ! res=$(helm template kubexa "$CHART" -f "$PROFILES_DIR/selftest.yaml" --set selftest.rbac.create=false 2>&1); then
+    fail "$profile: --set selftest.rbac.create=false failed to render: ${res:0:300}"
+    return 0
+  fi
+  st=$(extract_source "$res" "kubexa/templates/selftest.yaml")
+  kinds=$(grep -E '^kind:' <<< "$st" | awk '{print $2}' | sort | tr '\n' ' ')
+  if [ "$kinds" != "Job ServiceAccount " ]; then
+    fail "$profile: with selftest.rbac.create=false selftest.yaml renders [$kinds], expected exactly Job ServiceAccount -- a Role or RoleBinding the installer was told not to create"
+    return 0
+  fi
+  sa=$(awk '/^kind: ServiceAccount$/ {f=1} f && /^  name:/ {print $2; exit}' <<< "$st")
+  job_sa=$(grep -E '^[[:space:]]+serviceAccountName:' <<< "$st" | awk '{print $2}')
+  if [ -z "$sa" ] || [ "$sa" != "$job_sa" ]; then
+    fail "$profile: with selftest.rbac.create=false the Job runs as [$job_sa] but the ServiceAccount is [$sa]"
+    return 0
+  fi
+  ok "$profile: selftest.rbac.create=false renders only the Job and its ServiceAccount (no dangling binding)"
 }
 
 # The default must render nothing for the self-test: a default-on Job holding

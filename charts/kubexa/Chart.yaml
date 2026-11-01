@@ -729,7 +729,21 @@ type: application
 # No migration, no value and no ordering change, and it pairs with any
 # apiserver -- neither release calls a route that moved. Rolling back to 0.8.23
 # returns image 0.2.66.
-version: 0.8.24
+#
+# 0.8.25 gives the self-test Job a ServiceAccount and a namespaced Role that
+# can LIST deployments, statefulsets, daemonsets, jobs and cronjobs in its own
+# namespace -- list only, never a ClusterRole -- and hands it that namespace as
+# SELFTEST_NAMESPACE from the downward API. selftest.rbac.create (default true)
+# can be set false, like preflight.rbac.create, to render the ServiceAccount but
+# neither the Role nor the RoleBinding; the installed-image check then SKIPs. The self-test gained two checks, one
+# of them "installed image versions agree", which reads those five kinds and
+# SKIPs without the Role. The Job still renders only with selftest.enabled.
+#
+# selftest.activeDeadlineSeconds must stay above the binary's --timeout plus
+# 90s: if the Job controller deletes the pod first, it deletes the report with
+# it. Rolling back to 0.8.24 returns a Job with no RBAC and no namespace, whose
+# installed-image check SKIPs.
+version: 0.8.25
 appVersion: "0.1.0"
 keywords:
   - kubexa

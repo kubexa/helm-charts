@@ -43,6 +43,11 @@
         "activeDeadlineSeconds": { "type": "integer", "minimum": 1 },
         "ttlSecondsAfterFinished": { "type": ["integer", "null"], "minimum": 0 },
         "resources": { "type": "object" },
+        "rbac": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "create": { "type": "boolean" } }
+        },
         "login": {
           "type": "object",
           "additionalProperties": false,

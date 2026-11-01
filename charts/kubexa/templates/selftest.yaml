@@ -1,9 +1,29 @@
 {{- if .Values.selftest.enabled }}
 {{- /*
-One Job and nothing else: no ServiceAccount, Role, ClusterRole or bindings.
-The self-test never touches the Kubernetes API; it talks to the product's own
-endpoints over in-cluster Service DNS, so it runs as the namespace's default
-ServiceAccount with no token worth having.
+One Job, and the ServiceAccount, Role and RoleBinding that let it read ONE
+thing from the Kubernetes API: which first-party image tags its own namespace
+is actually running. Everything else the self-test checks it still does over the
+product's own endpoints on in-cluster Service DNS; only the "installed image
+versions agree" check needs the API, and without this Role it SKIPs.
+
+The Role is a Role, never a ClusterRole, and grants "list" only -- no get, no
+watch, no write -- on exactly deployments, statefulsets, daemonsets, jobs and
+cronjobs. The check reads its own namespace, so a cluster-wide grant would be
+authority the check never uses, held by a pod whose spec names every credential
+the platform has. Widening it is worse than a check that SKIPs; tests/render.sh
+fails if the verbs, the resources or the kind change.
+
+selftest.rbac.create=false renders the ServiceAccount and the Job but neither
+the Role nor the RoleBinding, for an installing identity that may not create
+them (same shape as preflight.rbac.create). The ServiceAccount is kept so the
+operator has a stable subject to bind themselves, and the Job keeps running as
+it rather than falling back to "default". Until bound, the list calls are
+Forbidden and the installed-image check SKIPs; nothing else changes.
+
+The Job learns its namespace from the downward API (SELFTEST_NAMESPACE), not
+from .Release.Namespace: the value is then the namespace the pod actually runs
+in and cannot drift from a hand-set one. The ServiceAccount token is mounted
+because the check cannot list anything without it.
 
 No Helm hook annotations, on purpose and permanently. This is not a
 post-install hook: a hook that fails fails the release, and this Job is a
@@ -38,6 +58,52 @@ the door an agent actually uses is shut. */ -}}
 {{- /* Coupled to the consumer subchart's own values: see selftest in values.yaml. */ -}}
 {{- $flush := dig "config" "writers" "flushInterval" "1s" $consumer }}
 {{- $durable := dig "config" "nats" "consumer" "name" "kubexa-consumer" $consumer }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "kubexa.selftestFullname" . }}
+  labels:
+    app.kubernetes.io/name: kubexa-selftest
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- if .Values.selftest.rbac.create }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kubexa.selftestFullname" . }}
+  labels:
+    app.kubernetes.io/name: kubexa-selftest
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+rules:
+  # the installed-image check: one tag per first-party image repository, read
+  # from what the cluster actually runs rather than from the chart
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets"]
+    verbs: ["list"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kubexa.selftestFullname" . }}
+  labels:
+    app.kubernetes.io/name: kubexa-selftest
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kubexa.selftestFullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kubexa.selftestFullname" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -61,7 +127,9 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
       restartPolicy: Never
-      automountServiceAccountToken: false
+      serviceAccountName: {{ include "kubexa.selftestFullname" . }}
+      # The one API read (see the top of this file) needs the token.
+      automountServiceAccountToken: true
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -95,6 +163,12 @@ spec:
             - --mail-to={{ . }}
             {{- end }}
           env:
+            # The namespace this pod runs in, from the API server's own record
+            # of it. Empty makes the installed-image check SKIP by design.
+            - name: SELFTEST_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             {{- if .Values.selftest.login.existingSecret }}
             # Environment only, never an argument: argv is world-readable on
             # the node, environ is not. The binary falls back to this name.
