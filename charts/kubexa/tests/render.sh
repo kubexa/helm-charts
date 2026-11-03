@@ -645,7 +645,12 @@ assert_supportbundle_credentials() {
   api=$(extract_source "$out" "kubexa/charts/apiserver/templates/deployment.yaml")
   env_block=$(awk '/^          env:$/ {e=1; next} e && /^          [a-z]/ {e=0} e' <<< "$sb")
 
-  local sb_names dep_names v
+  # Initialized explicitly, and that is load-bearing: `local x` leaves x UNSET
+  # on bash 4.4+ (the CI runner), so the first `x="$x ..."` append below dies
+  # with "unbound variable" under `set -u`. macOS ships bash 3.2, where the
+  # same declaration yields a set-but-empty variable -- so this assertion ran
+  # green on a developer machine and could never run at all in CI.
+  local sb_names="" dep_names="" v
   for v in KUBEXA_APISERVER_POSTGRES_APP_PASSWORD KUBEXA_APISERVER_POSTGRES_USERS_PASSWORD; do
     # The var's own block, so "declared but not optional" and "not declared at
     # all" are two different findings with two different messages. They were one
