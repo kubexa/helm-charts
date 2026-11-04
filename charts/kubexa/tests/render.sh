@@ -156,7 +156,16 @@ assert_vmalert_rules() {
     fail "$profile: no vmalert alert-configmap.yaml document found in the render"
     return
   fi
-  for rule in KubexaPasswordBreachCheckFailing KubexaSessionGateFailing KubexaSessionGateErroring; do
+  # KubexaAgentExportStalled and KubexaAgentSendStalled are pinned here for the
+  # same reason the three above are, with one difference worth stating: they are
+  # the only rules that can report an agent which has stopped delivering
+  # altogether. Every other agent rule reads a figure relayed through a
+  # heartbeat, so all of them describe an agent that is still talking. Delete
+  # these two and the install goes back to the state apexcrawl was in on
+  # 2026-10-26, where an export stalled for 9.6 days and nothing anywhere held a
+  # number that said so.
+  for rule in KubexaPasswordBreachCheckFailing KubexaSessionGateFailing KubexaSessionGateErroring \
+    KubexaAgentExportStalled KubexaAgentSendStalled; do
     if grep -qE "^[[:space:]]*- alert: $rule$" <<< "$doc"; then
       ok "$profile: vmalert rule $rule"
     else
