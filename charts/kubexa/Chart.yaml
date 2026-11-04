@@ -783,7 +783,25 @@ type: application
 # The support-bundle Job renders only when enabled, so rolling back to 0.8.24
 # changes no install that did not ask for it; it does return the namespace to
 # image 0.5.65, whose self-test does not run checks 11 and 12.
-version: 0.8.26
+# 0.8.27 changes no template. It moves kubexa-apiserver to 0.4.76 and
+# kubexa-agentserver to 0.2.56, so the namespace runs image 0.5.67, and moves
+# all three Job image pins (preflight, selftest, supportBundle) to 0.5.67 in the
+# same commit.
+#
+# It exists because of what the first support bundle taken from a live
+# installation showed, on 2026-11-04 from chart 0.8.26: all 22 pod log reads
+# answered 406 (only application/json, application/yaml and
+# application/vnd.kubernetes.protobuf are accepted). The log subresource
+# negotiates, and /kubexa-supportbundle sent Accept: text/plain -- so on image
+# 0.5.66 section 8 of the bundle is empty on every cluster. 0.5.67 is the first
+# image whose support bundle reads logs. Everything else that run established
+# holds: the namespaced Role is sufficient (35 API requests, 0 refused) and the
+# two Postgres secretKeyRefs reach a database the Job can read.
+#
+# 0.5.66 remains the floor below which /kubexa-supportbundle does not exist at
+# all. Rolling back to 0.8.26 therefore still starts, and still produces a
+# bundle -- one with no logs in it, whose trailer says so.
+version: 0.8.27
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -1500,7 +1518,7 @@ dependencies:
     # starts a container that cannot start. tests/render.sh asserts
     # preflight.image.tag equals the image this pin renders, which is why the
     # two move in one commit.
-    version: "0.4.75"
+    version: "0.4.76"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -1812,7 +1830,7 @@ dependencies:
     # HTTP concern and no agentserver path calls it. DO NOT INSTALL 0.2.51
     # either, for the same reason as apiserver 0.4.70 -- it names the never-built
     # 0.5.61.
-    version: "0.2.55"
+    version: "0.2.56"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
