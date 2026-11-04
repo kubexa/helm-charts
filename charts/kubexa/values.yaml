@@ -835,6 +835,69 @@ vmalert:
                   summary: "Agent on cluster {{ $labels.cluster_id }} is hitting its per-stream rate limit"
                   description: "{{ $value | humanize }} log lines dropped against the agent's per-stream limit in the last 30 minutes. Those lines are gone; raising the limit does not recover them."
 
+              # The two rules below differ from the two above in where their
+              # numbers come from, and that is the whole point of adding them.
+              # Everything above is an agent figure RELAYED through the
+              # agentserver's heartbeat handler -- so it can only describe an
+              # agent that is still delivering. The failure these catch is the
+              # agent that has stopped delivering entirely, which no relayed
+              # metric can report, by definition.
+              #
+              # They read kubexa_queue_* scraped straight off the agent pod,
+              # which is why the agent chart now annotates itself for pod
+              # discovery (service.scrapeAnnotations, default on). Those series
+              # carry no tenant_id or cluster_id -- pod discovery labels by
+              # namespace and pod -- so these group by (namespace, pod) and
+              # name the pod rather than the cluster.
+              #
+              # Written against apexcrawl 2026-10-26: the agent's export
+              # stalled two minutes into a session and stayed stalled for 9.6
+              # days. Every signal the platform had read healthy -- connection
+              # ready, stream active, all health components 1, /healthz ok --
+              # while the buffer filled and then dropped ~6.9M records. Either
+              # rule below would have fired inside twenty minutes.
+              - alert: KubexaAgentExportStalled
+                # Both sides are aggregated to the same (namespace, pod) label
+                # set on purpose: kubexa_queue_depth carries a `tier` label and
+                # kubexa_queue_dequeued_total does not, so an unaggregated
+                # `and` would never match and the rule would be permanently
+                # silent -- indistinguishable, from the outside, from healthy.
+                expr: |
+                  sum by (namespace, pod) (kubexa_queue_depth) > 0
+                    and
+                  sum by (namespace, pod) (increase(kubexa_queue_dequeued_total[15m])) == 0
+                for: 5m
+                labels:
+                  severity: critical
+                  component: agent
+                annotations:
+                  summary: "Agent {{ $labels.pod }} is buffering telemetry and sending none of it"
+                  description: "The agent's queue holds {{ $value | humanize }} items and has dequeued nothing for 15 minutes. Its export has stalled: the buffer will fill, and once it does every collected record is dropped at the door. The agent will keep reporting itself healthy throughout."
+
+              # Fires when the agent's own send deadline trips, which it does
+              # only when a send made no progress at all -- in practice a
+              # gateway that has stopped reading the stream. Separate from the
+              # rule above because the answer differs: this names the gateway,
+              # not the agent, and the agent has already recovered itself by
+              # ending the session.
+              #
+              # Needs more than a scrape: the error_type="send_stalled" label
+              # does not exist before the agent image that introduced the send
+              # deadline, so against any older agent this rule has no series and
+              # is silent. Unlike the rule above it cannot fall back on
+              # anything -- KubexaAgentExportStalled is what still catches a
+              # stalled export on an older agent, one stage later.
+              - alert: KubexaAgentSendStalled
+                expr: |
+                  sum by (namespace, pod) (increase(kubexa_grpc_stream_errors_total{error_type="send_stalled"}[15m])) > 0
+                for: 0m
+                labels:
+                  severity: warning
+                  component: agent
+                annotations:
+                  summary: "Agent {{ $labels.pod }} hit its send deadline and dropped the session"
+                  description: "{{ $value | humanize }} sends made no progress inside the deadline in the last 15 minutes. The agent ends the session and reconnects when this happens, so telemetry is not lost -- but a gateway that stops reading a stream is the failure this deadline exists to interrupt, and it should be looked at."
+
           - name: consumer
             rules:
               # Every rule in this group groups by every identity label its

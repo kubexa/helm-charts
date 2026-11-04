@@ -801,7 +801,36 @@ type: application
 # 0.5.66 remains the floor below which /kubexa-supportbundle does not exist at
 # all. Rolling back to 0.8.26 therefore still starts, and still produces a
 # bundle -- one with no logs in it, whose trailer says so.
-version: 0.8.27
+# 0.8.28 changes no image and no template. It adds two alert rules to the
+# `agent` group: KubexaAgentExportStalled and KubexaAgentSendStalled.
+#
+# Every agent rule before these reads a figure the agentserver RELAYED from a
+# heartbeat, so all of them can only describe an agent that is still
+# delivering. On 2026-10-26 apexcrawl's agent stopped delivering two minutes
+# into a session and stayed stopped for 9.6 days: its drain was parked in an
+# unbounded grpc send, the buffer filled, and ~6.9M collected records were
+# dropped at the door -- while connection state, stream active, every
+# health_status component and /healthz all read healthy, and nothing on the
+# platform held a number that disagreed. These two rules read kubexa_queue_*
+# scraped directly off the agent pod instead, which is the only vantage point
+# from which a stalled export is visible at all.
+#
+# They need the agent pod to be scraped. kubexa-agent chart 0.11.2 annotates
+# itself for pod discovery by default (service.scrapeAnnotations); an agent
+# older than that, or one with the toggle off, leaves both rules with no
+# series and therefore permanently silent. That silence is not visible from
+# the alert side -- KubexaTargetAbsent is what covers it.
+#
+# KubexaAgentSendStalled needs one thing more: the error_type="send_stalled"
+# label only exists on the agent image that introduced the send deadline, so
+# on any older agent that rule has no series regardless of scraping.
+# KubexaAgentExportStalled does not depend on the agent version at all, and is
+# what still catches a stalled export on an older agent -- one stage later,
+# once the buffer has started filling.
+#
+# No migration. Rolling back to 0.8.27 removes the rules and restores the
+# previous blind spot.
+version: 0.8.28
 appVersion: "0.1.0"
 keywords:
   - kubexa
