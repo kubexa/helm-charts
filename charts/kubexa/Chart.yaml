@@ -830,7 +830,39 @@ type: application
 #
 # No migration. Rolling back to 0.8.27 removes the rules and restores the
 # previous blind spot.
-version: 0.8.28
+# 0.8.29 moves the component charts to apiserver 0.4.77 / agentserver 0.2.57
+# (image 0.5.68) and the three operator Job images with them. It changes no
+# template of its own.
+#
+# Image 0.5.68 closes two silent data paths:
+#   - The gateway can no longer be stopped by one slow message. Process ran
+#     under the stream's deadline-free context and its handlers end at the
+#     ingest queue's Enqueue, so a full buffer parked the main loop, stopped
+#     recvCh being drained, stopped stream.Recv being called at all, and left
+#     the HTTP/2 receive window shut. That is the gateway half of the apexcrawl
+#     export stall of 2026-10-26: 9.6 days with no telemetry while every signal
+#     on both ends read healthy. Each message is now bounded at 15s --
+#     deliberately under the agent's 30s send deadline, so the gateway sheds one
+#     message while the agent's session is still alive.
+#   - A redis subscription is confirmed by the server before the subscriber
+#     reports that it started. go-redis discards the error that says a SUBSCRIBE
+#     never happened, and its own repair path waits a minute, so a transient
+#     failure at subscribe time cost a minute of silent non-delivery behind a
+#     "subscriber started" log line. Five subscribers across the two processes.
+#
+# This pairs with the agent side, which ships separately in the customer's
+# cluster: agent chart 0.11.2 / image 0.11.2 bounds the agent's own send and
+# adds kubexa_queue_refused_total. The alert rules 0.8.28 added
+# (KubexaAgentExportStalled, KubexaAgentSendStalled) read the agent's scraped
+# series, so they need that agent chart for the scrape annotations -- but
+# neither side waits on the other: both ends of the stall are independently
+# bounded, so there is no install order here.
+#
+# preflight/supportBundle/selftest move to 0.5.68 in the same commit as the
+# apiserver pin, which is not bookkeeping: tests/render.sh fails the release if
+# any of the three renders a different image than the apiserver does, because a
+# release checked by a different release's binary is not checked.
+version: 0.8.29
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -1547,7 +1579,7 @@ dependencies:
     # starts a container that cannot start. tests/render.sh asserts
     # preflight.image.tag equals the image this pin renders, which is why the
     # two move in one commit.
-    version: "0.4.76"
+    version: "0.4.77"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -1859,7 +1891,7 @@ dependencies:
     # HTTP concern and no agentserver path calls it. DO NOT INSTALL 0.2.51
     # either, for the same reason as apiserver 0.4.70 -- it names the never-built
     # 0.5.61.
-    version: "0.2.56"
+    version: "0.2.57"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
