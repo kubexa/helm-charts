@@ -164,8 +164,20 @@ assert_vmalert_rules() {
   # these two and the install goes back to the state apexcrawl was in on
   # 2026-10-26, where an export stalled for 9.6 days and nothing anywhere held a
   # number that said so.
+  #
+  # KubexaConsumerNotDraining and LokiRuntimeConfigRejected join them for the
+  # same structural reason, one hop further down the pipeline. Every OTHER
+  # consumer rule reads a counter the consumer itself increments, so each one
+  # describes a consumer that is running and unhappy; a consumer that has
+  # stopped consuming increments nothing and reads as healthy. And a Loki that
+  # rejects its per-tenant limits document keeps the last good one, logs nothing
+  # a caller can see, and silently falls back to the most generous global
+  # limits. Both failures are invisible by construction, so these two rules are
+  # the only thing that reports them -- removing either restores a silence,
+  # which is exactly what this assertion exists to make loud.
   for rule in KubexaPasswordBreachCheckFailing KubexaSessionGateFailing KubexaSessionGateErroring \
-    KubexaAgentExportStalled KubexaAgentSendStalled; do
+    KubexaAgentExportStalled KubexaAgentSendStalled \
+    KubexaConsumerNotDraining LokiRuntimeConfigRejected; do
     if grep -qE "^[[:space:]]*- alert: $rule$" <<< "$doc"; then
       ok "$profile: vmalert rule $rule"
     else

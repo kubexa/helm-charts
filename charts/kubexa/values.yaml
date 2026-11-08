@@ -975,6 +975,77 @@ vmalert:
                   summary: "Consumer is refusing writes to {{ $labels.destination }}"
                   description: "A rate limit put {{ $labels.destination }} into cooldown for namespace {{ $labels.tenant_namespace }} at some point in the last 30 minutes."
 
+              # The gap every other consumer rule in this group leaves open.
+              # All three above are driven by counters the consumer itself
+              # increments, so each one reports a consumer that is RUNNING and
+              # unhappy. A consumer that has stopped consuming increments
+              # nothing, and silence from a counter is not a signal
+              # (KubexaConsumerDropping reads exactly the same as a healthy
+              # pipeline when the process is wedged).
+              #
+              # The absent-pod half is already covered: KubexaTargetDown fires
+              # critical on up == 0 after 5m. What had NO coverage is a
+              # consumer that is alive, scraped, Ready, and not draining the
+              # stream -- a wedged write, a deadlock, an ack floor that stops
+              # advancing. That is the shape of the 2026-10-26 export stall,
+              # which ran 9.6 days with every signal green.
+              #
+              # It matters more than "some messages are late", because
+              # JetStream's max_age is what bounds the damage: telemetry
+              # published while the consumer is wedged is deleted unread once
+              # the window passes. Nothing recovers it. The window is 8h, so
+              # this alert is the only thing standing between a wedged
+              # consumer and permanent loss.
+              #
+              # Written against the two counters that EXIST. There is no
+              # backlog series to alert on: kubexa-consumer exports
+              # written/dropped/bounced/errors/cooldown and nothing about its
+              # JetStream position, and the bundled NATS is not a scrape
+              # target, so jetstream_consumer_num_pending is nowhere in this
+              # datasource. "The gateway is publishing and the consumer is
+              # writing nothing" is the same question asked from the outside.
+              #
+              # THREE SHAPE DECISIONS, each one a defect avoided:
+              #
+              # 1. No `or vector(0)` on the consumer side. An absent consumer
+              #    makes sum(increase(...)) EMPTY, not zero, so this rule stays
+              #    silent and KubexaTargetDown owns that case. Adding a zero
+              #    fallback would make it fire on every fresh install before
+              #    any telemetry has flowed -- the LokiRetentionStalled defect
+              #    of 2026-09-27, in a new place.
+              # 2. The gateway side is the guard, not a second symptom. On a
+              #    genuinely idle install nothing is published and the rule is
+              #    correctly quiet; it only speaks when there is work that is
+              #    demonstrably not being done. Comparing against an
+              #    always-present series rather than against now() is the same
+              #    reasoning as KubexaAlertPipelineHeartbeat.
+              # 3. GLOBAL, not per cluster -- and that is a real limitation,
+              #    stated rather than hidden. kubexa_consumer_messages_written_total
+              #    carries cluster_id, but the gateway's publish counter
+              #    carries the cluster only INSIDE the subject string, so the
+              #    two cannot be joined in MetricsQL. A single tenant's
+              #    pipeline stalling while others flow will not fire this. It
+              #    catches the whole consumer stopping, which is what a single
+              #    process pulling a single stream actually does.
+              #
+              # for: 5m on top of a 15m lookback -- about 20 minutes to fire.
+              # That number is load-bearing: the 8h max_age in
+              # agentserver.config.nats.jetstream was chosen as this detection
+              # window plus one night. Lengthening either one without the other
+              # breaks that relationship silently.
+              - alert: KubexaConsumerNotDraining
+                expr: |
+                  sum(increase(kubexa_gateway_nats_publish_total{status="ok"}[15m])) > 0
+                    and
+                  sum(increase(kubexa_consumer_messages_written_total[15m])) == 0
+                for: 5m
+                labels:
+                  severity: critical
+                  component: consumer
+                annotations:
+                  summary: "Consumer is not draining the telemetry stream"
+                  description: "The gateway published {{ $value | humanize }} messages to JetStream in the last 15 minutes and the consumer wrote none to any destination, while its pod is up and being scraped. Nothing is reaching Postgres, Loki or VictoriaMetrics. Messages are retained for 8 hours and then deleted unread, so this is a deadline, not a backlog: check the consumer's logs and `nats consumer report KUBEXA_TELEMETRY` for an ack floor that has stopped advancing."
+
           - name: loki
             rules:
               - alert: LokiRetentionStalled
@@ -1028,6 +1099,45 @@ vmalert:
                 annotations:
                   summary: "Loki is discarding log lines ({{ $labels.reason }})"
                   description: "Discarding {{ $value | humanize }} entries/s for reason {{ $labels.reason }}. Those lines are gone; they are not retried."
+
+              # The one signal for the one silent failure in the per-tenant
+              # limits path, and until VictoriaMetrics began scraping this
+              # cluster nothing collected it.
+              #
+              # Loki decodes runtime_config with strict YAML and validates
+              # tenant by tenant, returning on the FIRST error -- so one unknown
+              # key, one duplicate, or one bad tenant fails the load for EVERY
+              # tenant. runtimeconfig.Manager then keeps the last good value,
+              # flips this gauge to 0, leaves loki_runtime_config_hash on the
+              # previous value, and logs nothing a caller can see. Loki keeps
+              # serving. Nothing else reports it.
+              #
+              # The consequence is not "limits are stale", it is that the
+              # fallback is the GLOBAL limits_config, set at the most generous
+              # level -- a failed load silently PROMOTES every tenant. Proved by
+              # experiment 2026-08-09 with a bogus key injected into the
+              # rendered document: this gauge went to 0 while the hash stayed
+              # put.
+              #
+              # No `or vector(0)`: an absent gauge means Loki is not running,
+              # which is KubexaTargetDown's job (up == 0, 5m). A zero fallback
+              # here would page on every install that has no Loki at all.
+              # Verified against the live datasource 2026-11-08: silent while
+              # the gauge reads 1, returns a series when it reads 0, silent when
+              # the series is absent.
+              #
+              # for: 5m, not 0m. The gauge is 0 for one scrape interval while a
+              # genuinely new document is still being validated on a reload, and
+              # the CronJob reapplies every minute.
+              - alert: LokiRuntimeConfigRejected
+                expr: loki_runtime_config_last_reload_successful == 0
+                for: 5m
+                labels:
+                  severity: critical
+                  component: loki
+                annotations:
+                  summary: "Loki rejected its per-tenant limits document"
+                  description: "Loki could not load runtime_config and is still serving the LAST GOOD one, which it will do indefinitely without logging anything. Because the load is all-or-nothing, no tenant's limits are being applied from the current document, and anything not covered by the last good value falls back to the global limits_config -- the most generous level, so tenants are silently promoted rather than restricted. Compare `loki_runtime_config_hash` against the document the apiserver serves at /internal/loki/runtime-config, and read the loki-runtime-sync CronJob's last pod log."
 
           # Off by default. `backup.enabled` is false in the umbrella chart's
           # values.yaml, and a cluster that has never turned backups on will page
@@ -1569,7 +1679,7 @@ preflight:
     # not, which is what this value said until chart 0.8.21. Chart 0.8.22 moves
     # this to 0.5.64 with the apiserver pin; 0.5.63 stays the floor below which
     # the binary does not exist at all.
-    tag: "0.5.68"
+    tag: "0.5.69"
   # How long a probe volume may take to bind before the storage check calls it
   # a failure.
   pvcTimeoutSeconds: 60
@@ -1620,7 +1730,7 @@ supportBundle:
     # This value and the apiserver subchart's appVersion must still be bumped in
     # the SAME commit: the render assertion compares them to each other, so it
     # catches them diverging and stays silent when both lag.
-    tag: "0.5.68"
+    tag: "0.5.69"
     pullPolicy: IfNotPresent
   # activeDeadlineSeconds must stay comfortably ABOVE timeout, because this
   # deadline DELETES the pod -- and with it the bundle in its log. 600 against
@@ -1676,7 +1786,7 @@ selftest:
     # This value and the apiserver subchart's appVersion must still be bumped in
     # the SAME commit: the render assertion compares them to each other, so it
     # catches them diverging and stays silent when both lag.
-    tag: "0.5.68"
+    tag: "0.5.69"
     pullPolicy: IfNotPresent
   # The Job's own ceiling. The binary bounds the whole run with its --timeout;
   # this is the backstop if the process itself hangs.

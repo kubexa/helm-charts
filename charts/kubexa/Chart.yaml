@@ -862,7 +862,82 @@ type: application
 # apiserver pin, which is not bookkeeping: tests/render.sh fails the release if
 # any of the three renders a different image than the apiserver does, because a
 # release checked by a different release's binary is not checked.
-version: 0.8.29
+#
+# 0.8.30 adds TWO alert rules and moves both backend charts to image 0.5.69
+# (apiserver 0.4.78, agentserver 0.2.58; preflight/supportBundle/selftest with
+# them). Both rules exist for the same reason: a failure that is real, already
+# reachable, and reported by nothing.
+#
+# The first is KubexaConsumerNotDraining, and it closes a gap the other three
+# consumer rules structurally cannot cover. All of them are driven by counters
+# the consumer itself increments, so each one reports a consumer that is
+# RUNNING and unhappy; a consumer that has stopped consuming increments nothing,
+# and KubexaConsumerDropping then reads exactly like a healthy pipeline. The
+# absent-pod half was already covered -- KubexaTargetDown fires critical on
+# up == 0 after 5m -- but a consumer that is alive, scraped, Ready and not
+# draining the stream had no alert at all. That is the shape of the apexcrawl
+# export stall of 2026-10-26, which ran 9.6 days with every signal green.
+#
+# There is no backlog series to alert on: kubexa-consumer exports
+# written/dropped/bounced/errors/cooldown and nothing about its JetStream
+# position, and the bundled NATS is not a scrape target, so
+# jetstream_consumer_num_pending exists nowhere in this datasource. The rule
+# asks the same question from outside instead -- the gateway is publishing and
+# the consumer is writing nothing -- from the two counters that do exist.
+#
+# EXERCISED against the live datasource before shipping, not just parsed. A
+# rule whose series never existed has never been evaluated, and from the alert
+# side that is indistinguishable from a healthy system (which is how
+# KubexaAgentSendStalled sat inactive for days in 0.8.28). All four behaviours
+# were measured on apexcrawl 2026-11-08: silent on a healthy system; RETURNS A
+# VALUE when the consumer side is a real zero, so the `and` label-set join
+# actually matches and the rule can fire; silent when the consumer series is
+# absent, because there is deliberately no `or vector(0)` -- a zero fallback
+# would fire on every fresh install before any telemetry flowed, which is the
+# LokiRetentionStalled defect of 2026-09-27; and silent on an idle install
+# where nothing is published.
+#
+# Its ~20m detection window (for: 5m over a 15m lookback) is tied to the
+# agentserver's new 8h JetStream max_age: the window is detection plus one
+# night, because under limits retention max_age is also the consumer's downtime
+# budget -- telemetry published while the consumer is wedged is deleted unread
+# past it. Changing either number without the other breaks that relationship
+# silently. The agentserver chart's 0.2.58 note carries the measurement.
+#
+# The second is LokiRuntimeConfigRejected, on
+# loki_runtime_config_last_reload_successful == 0. Loki decodes runtime_config
+# with strict YAML and validates tenant by tenant, returning on the first
+# error, so one unknown key fails the load for EVERY tenant -- and then
+# runtimeconfig.Manager keeps the last good value, flips that gauge, leaves
+# loki_runtime_config_hash where it was, and logs nothing a caller can see.
+# Loki keeps serving. The consequence is not stale limits but SILENT PROMOTION:
+# the fallback is the global limits_config at its most generous level. That was
+# proved by experiment on 2026-08-09 with a bogus key injected into the
+# rendered document, and it has been unalerted ever since, because at that time
+# nothing scraped Loki. VictoriaMetrics does now, so the rule is finally
+# expressible -- the gauge reads 1 on this install today.
+#
+# Both rules were exercised against the live datasource before shipping rather
+# than only parsed, on all 29 rules in this file: none rejected, each new rule
+# silent while healthy, each returning a series when its condition is forced,
+# and each silent when its series is absent.
+#
+# Both are also pinned by name in tests/render.sh, alongside the agent's two
+# stall rules and for the same structural reason: each reports a failure whose
+# own reporter is silent, so deleting one restores a silence rather than
+# breaking a check. Verified by mutation -- renaming the rule turns that
+# assertion red.
+#
+# Image 0.5.69's own change is agentserver-side: ensureStream now reports a
+# retention policy it cannot reconcile, since JetStream refuses to change
+# retention on a live stream and the previous code fixed the two fields it
+# could and returned nil.
+#
+# Sequencing: none between this and the backend charts -- they are vendored
+# here. Installing this on a cluster whose stream predates it leaves the stream
+# at 24h until the agentserver reconciles max_age at boot, which it does. No
+# migration, no new value, no new permission key.
+version: 0.8.30
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -1579,7 +1654,7 @@ dependencies:
     # starts a container that cannot start. tests/render.sh asserts
     # preflight.image.tag equals the image this pin renders, which is why the
     # two move in one commit.
-    version: "0.4.77"
+    version: "0.4.78"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -1891,7 +1966,7 @@ dependencies:
     # HTTP concern and no agentserver path calls it. DO NOT INSTALL 0.2.51
     # either, for the same reason as apiserver 0.4.70 -- it names the never-built
     # 0.5.61.
-    version: "0.2.57"
+    version: "0.2.58"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
