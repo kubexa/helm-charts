@@ -1035,7 +1035,37 @@ type: application
 # second term is itself a fifteen-minute sustained state, not a single event.
 # The rule is: a lookbehind longer than `for:` is a defect only when the
 # expression can be made true by one increment.
-version: 0.8.32
+# 0.8.33 carries backend charts 0.4.80 / 0.2.60 on image 0.5.71. No rule
+# change -- and that is the point: the defect was in the metric, not in the
+# rule that read it.
+#
+# KubexaAgentDropsTooOld fired on apexcrawl at 21:31 naming a cluster whose
+# agent had dropped nothing. The agent's own counter had no series at all,
+# while the relayed kubexa_gateway_agent_dropped_too_old_total jumped to the
+# agent's running total the instant the agentserver restarted.
+#
+# The agentserver turns the agent's cumulative heartbeat reports into
+# increments for counters it owns, and differenced the FIRST report of each
+# (tenant, cluster) against zero -- a key the process has never seen is
+# indistinguishable from a key whose last reading was zero -- so the agent's
+# whole lifetime total was added at the moment of first contact. That is every
+# agentserver restart, and every return of an agent whose remembered total the
+# sweep had evicted. Image 0.5.71 baselines a first report instead. All four
+# relayed counters are covered, so KubexaAgentRateLimited -- which fired on the
+# same restart -- is fixed by the same change.
+#
+# Deliberately NOT done here: `for:` was not lengthened and no second-sample
+# guard was added. Both would have suppressed a genuine FIRST drop, which is
+# exactly the case these rules exist for; with increase() honest again
+# `for: 0m` is correct. Three times today a rule looked like the place to fix a
+# reporting defect and twice it was not
+# (KubexaBackupNotRunning's datasource gap was the rule; this one was not).
+#
+# Also in 0.5.71: the same first-sight rule applied to the per-kind scrape
+# cardinality drops, which fleetAgentLost reads with increase().
+#
+# No migration, no new value, no new permission key.
+version: 0.8.33
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -1752,7 +1782,7 @@ dependencies:
     # starts a container that cannot start. tests/render.sh asserts
     # preflight.image.tag equals the image this pin renders, which is why the
     # two move in one commit.
-    version: "0.4.79"
+    version: "0.4.80"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -2064,7 +2094,7 @@ dependencies:
     # HTTP concern and no agentserver path calls it. DO NOT INSTALL 0.2.51
     # either, for the same reason as apiserver 0.4.70 -- it names the never-built
     # 0.5.61.
-    version: "0.2.59"
+    version: "0.2.60"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer

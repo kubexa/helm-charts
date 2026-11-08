@@ -1855,7 +1855,7 @@ preflight:
     # not, which is what this value said until chart 0.8.21. Chart 0.8.22 moves
     # this to 0.5.64 with the apiserver pin; 0.5.63 stays the floor below which
     # the binary does not exist at all.
-    tag: "0.5.70"
+    tag: "0.5.71"
   # How long a probe volume may take to bind before the storage check calls it
   # a failure.
   pvcTimeoutSeconds: 60
@@ -1906,7 +1906,7 @@ supportBundle:
     # This value and the apiserver subchart's appVersion must still be bumped in
     # the SAME commit: the render assertion compares them to each other, so it
     # catches them diverging and stays silent when both lag.
-    tag: "0.5.70"
+    tag: "0.5.71"
     pullPolicy: IfNotPresent
   # activeDeadlineSeconds must stay comfortably ABOVE timeout, because this
   # deadline DELETES the pod -- and with it the bundle in its log. 600 against
@@ -1962,7 +1962,7 @@ selftest:
     # This value and the apiserver subchart's appVersion must still be bumped in
     # the SAME commit: the render assertion compares them to each other, so it
     # catches them diverging and stays silent when both lag.
-    tag: "0.5.70"
+    tag: "0.5.71"
     pullPolicy: IfNotPresent
   # The Job's own ceiling. The binary bounds the whole run with its --timeout;
   # this is the backstop if the process itself hangs.
