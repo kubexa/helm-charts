@@ -175,9 +175,32 @@ assert_vmalert_rules() {
   # limits. Both failures are invisible by construction, so these two rules are
   # the only thing that reports them -- removing either restores a silence,
   # which is exactly what this assertion exists to make loud.
+  #
+  # KubexaBackupNotRunning is pinned for the same reason and one it earned the
+  # hard way: it is the rule that reports that nothing is reporting -- a CronJob
+  # deleted, unschedulable, or unable to pull its image produces no pod, no log
+  # and no failure event, so every other backup rule reads a scope that is
+  # absent rather than broken. It has ALREADY disappeared once, commented out
+  # between 2026-09-26 and 2026-10-11 to stop a false page, which is precisely
+  # the move this assertion exists to catch: silencing the reporter is not
+  # fixing the report. The false page was fixed on 2026-11-08 by gating its
+  # absence fallback; there is no longer a reason to reach for the comment
+  # character. Note this pin is independent of backup.enabled -- the rules
+  # ConfigMap carries every rule regardless of whether this install deploys a
+  # CronJob at all.
+  # KubexaAgentTokenPoolUnseeded belongs here for the same reason and is the
+  # starkest case of it: an agentserver whose token pool was never seeded is
+  # up, ready, scraped and entirely healthy by every other measure, while NO
+  # agent on the install can complete a handshake. Every agent-side rule reads
+  # a figure relayed through a heartbeat, and there are no heartbeats, so this
+  # rule is the only thing anywhere that reports a silent fleet. It was also
+  # created by narrowing KubexaHandshakeRejections on 2026-11-08 -- deleting it
+  # would leave that exclusion in place and the exclusion alone, which is
+  # strictly worse than before the split.
   for rule in KubexaPasswordBreachCheckFailing KubexaSessionGateFailing KubexaSessionGateErroring \
     KubexaAgentExportStalled KubexaAgentSendStalled \
-    KubexaConsumerNotDraining LokiRuntimeConfigRejected; do
+    KubexaConsumerNotDraining LokiRuntimeConfigRejected \
+    KubexaBackupNotRunning KubexaAgentTokenPoolUnseeded; do
     if grep -qE "^[[:space:]]*- alert: $rule$" <<< "$doc"; then
       ok "$profile: vmalert rule $rule"
     else
