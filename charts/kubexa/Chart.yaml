@@ -937,7 +937,70 @@ type: application
 # here. Installing this on a cluster whose stream predates it leaves the stream
 # at 24h until the agentserver reconciles max_age at boot, which it does. No
 # migration, no new value, no new permission key.
-version: 0.8.30
+# 0.8.31 carries backend charts 0.4.79 / 0.2.59 on image 0.5.70, and three
+# alerting fixes. Two of them stop a rule paging on a healthy install; the third
+# is a rule that did not exist.
+#
+# KubexaBackupNotRunning no longer fires because the datasource forgot. Its
+# `or vector(0)` fallback turns an ABSENT metric into time() - 0, which is 56
+# years and past any threshold -- and absence happens on every loss of
+# VictoriaMetrics' data, not only on a fresh install. Measured on apexcrawl
+# 2026-11-08: VM restarted with an empty storage path at 04:39 and the alert
+# was critical from 04:38 until 20:11, 15h33m, on a cluster whose backups were
+# doing exactly what they were configured to do. $value read 1794168400.
+#
+# Three readings name the same instant: VM's oldest sample 04:40,
+# vm_app_uptime_seconds 56010s at 20:12, the alert's own activeAt 04:38. The
+# amplifier is the publish cadence -- last_attempt is pushed once a night at
+# 02:00, so each such loss buys up to 26 HOURS of a firing critical. Same defect
+# as LokiRetentionStalled (fixed 2026-09-27), which fired on every Loki restart
+# rather than only on fresh installs.
+#
+# The fallback is kept and GATED on min(vm_app_uptime_seconds) > 26h, the one
+# always-present series that says how long the store has been recording. Below
+# it an absence is uninformative and the fallback contributes nothing, so the
+# rule is silent; above it an absent metric is a real never-ran and still fires.
+# Exercised against the live datasource in four states with the old expression
+# as the control. The important one: present with the staleness threshold at 0
+# fires with a real duration (195s), which is what proves the `and` join
+# matches and $value still humanizes rather than rendering a bare 1.
+#
+# An install that sets backup.enabled=false in the CHART still has no CronJob at
+# all and must comment the rule out; that is NOT the same as switching backups
+# off on the settings screen, which was measured this day to keep publishing.
+#
+# KubexaHandshakeRejections no longer pages on every agentserver restart, and
+# KubexaAgentTokenPoolUnseeded is new. The agentserver's token pool is pushed to
+# it by the apiserver AFTER it starts, so for the first moments of each restart
+# it knows of no tokens and must reject every handshake, valid ones included --
+# two on apexcrawl at 18:08, both connected 17s later, and the rule fired a
+# warning naming "invalid_token". Backend 0.5.70 separates the two at the source
+# (reason=token_pool_unseeded); this chart excludes that reason from the warning
+# and gives it a rule of its own at for: 10m, severity critical.
+#
+# Both halves are required and the rule is the more important one: a pool that
+# NEVER gets seeded means the apiserver's reconciler is not pushing and NO agent
+# on the install can connect, while the agentserver is up, ready, scraped and
+# healthy by every other measure. Every agent-side rule reads a figure relayed
+# through a heartbeat, and there are no heartbeats. for: 10m is thirty times the
+# observed seeding delay, so a normal restart cannot reach it. Verified on the
+# live datasource with a synthetic series: the new rule fires, the narrowed
+# warning stays silent, and the OLD expression counts the same series -- the
+# defect reproduced and the fix proven in one reading.
+#
+# All three are pinned by name in tests/render.sh, as is KubexaBackupNotRunning,
+# which has already been deleted once -- commented out between 2026-09-26 and
+# 2026-10-11 to stop exactly the false page now fixed properly. Silencing the
+# reporter is not fixing the report, and that pin is what catches the next
+# attempt. Mutation-verified.
+#
+# Also in image 0.5.70: the agentserver stops stamping "env":"dev" on its logs
+# and spans in production (chart kubexa-agentserver 0.2.59 adds `environment`,
+# default prod). An install that is not production should set it.
+#
+# Sequencing: none between this and the backend charts -- they are vendored
+# here. No migration, no new value, no new permission key.
+version: 0.8.31
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -1654,7 +1717,7 @@ dependencies:
     # starts a container that cannot start. tests/render.sh asserts
     # preflight.image.tag equals the image this pin renders, which is why the
     # two move in one commit.
-    version: "0.4.78"
+    version: "0.4.79"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -1966,7 +2029,7 @@ dependencies:
     # HTTP concern and no agentserver path calls it. DO NOT INSTALL 0.2.51
     # either, for the same reason as apiserver 0.4.70 -- it names the never-built
     # 0.5.61.
-    version: "0.2.58"
+    version: "0.2.59"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer

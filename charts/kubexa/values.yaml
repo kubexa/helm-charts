@@ -794,15 +794,63 @@ vmalert:
               # querying VictoriaMetrics. The name was checked against
               # internal/agentserver/metrics/metrics.go instead.
               - alert: KubexaHandshakeRejections
+                # token_pool_unseeded is excluded, and the exclusion is the whole
+                # point of that label existing.
+                #
+                # The agentserver's token pool is pushed to it by the apiserver's
+                # reconciler AFTER the agentserver starts, so for the first moments
+                # of every restart the process knows of no tokens at all and must
+                # reject every handshake -- including valid ones. That happened on
+                # apexcrawl at 18:08 on 2026-11-08: this rule fired a warning
+                # naming "invalid_token" for two agents whose tokens were fine, and
+                # both were connected 17 seconds later. With `for: 0m` and a 30m
+                # window, one unavoidable restart transient pages for half an hour
+                # and reads exactly like somebody presenting a bad credential.
+                #
+                # Until 2026-11-08 the agentserver could not tell the two apart
+                # either (auth.ErrInvalidToken covered both), so this could not be
+                # filtered here even in principle. It can now.
                 expr: |
-                  sum by (reason) (increase(kubexa_gateway_handshake_rejected_total[30m])) > 0
+                  sum by (reason) (increase(kubexa_gateway_handshake_rejected_total{reason!="token_pool_unseeded"}[30m])) > 0
                 for: 0m
                 labels:
                   severity: warning
                   component: gateway
                 annotations:
                   summary: "Agent handshakes are being rejected ({{ $labels.reason }})"
-                  description: "{{ $value | humanize }} handshakes rejected for reason {{ $labels.reason }} in the last 30 minutes. Those agents are not connected and are sending nothing at all."
+                  description: "{{ $value | humanize }} handshakes rejected for reason {{ $labels.reason }} in the last 30 minutes. Those agents are not connected and are sending nothing at all. Startup transients are NOT counted here -- reason=token_pool_unseeded has its own rule -- so this is a credential, protocol or version problem, not a restart."
+
+              # The other half of that split, and it must exist: excluding a reason
+              # from the rule above without giving it one of its own would turn a
+              # restart transient into permanent silence, and a token pool that
+              # NEVER gets seeded is not a transient -- it means the apiserver's
+              # reconciler is not pushing, and NO agent on the install can connect
+              # at all while every other signal looks healthy. The whole fleet
+              # going quiet is the most serious state this chart can report.
+              #
+              # `for: 10m` is sized from the only measurement there is: the
+              # observed seeding delay on apexcrawl was under 20 seconds
+              # (rejections at 18:08:0x, both agents connected 17s later). Ten
+              # minutes is thirty times that, so a normal restart cannot reach it,
+              # while a reconciler that is simply not running is caught in the same
+              # ten minutes.
+              #
+              # This needs no absence fallback. The agents retry, so a pool that
+              # stays unseeded keeps producing rejections and the series keeps
+              # climbing; and an install with no agents at all has nothing to
+              # report -- `or vector(0)` here would page every fresh install before
+              # its first agent was ever connected, which is the defect
+              # KubexaBackupNotRunning spent two months carrying.
+              - alert: KubexaAgentTokenPoolUnseeded
+                expr: |
+                  sum(increase(kubexa_gateway_handshake_rejected_total{reason="token_pool_unseeded"}[15m])) > 0
+                for: 10m
+                labels:
+                  severity: critical
+                  component: gateway
+                annotations:
+                  summary: "The agentserver has never been told which agent tokens exist"
+                  description: "Agent handshakes have been rejected for 10 minutes because the agentserver's token pool has never been seeded ({{ $value | humanize }} rejections in the last 15 minutes). The apiserver's token reconciler pushes that pool over the control channel after the agentserver starts; a few seconds of this is normal on every restart, ten minutes is not. Until it is seeded NO agent can connect, whatever its credentials, so the whole fleet is sending nothing while the agentserver itself looks healthy."
 
           # Both counters are agent-reported figures relayed through the
           # agentserver's heartbeat handler, so they describe loss that happened
@@ -1183,6 +1231,12 @@ vmalert:
               # threshold, so a genuinely stale-but-present metric still
               # reports its real age) and only the true absence case falls
               # through to vector(0).
+              #
+              # Necessary, sufficient -- and still not safe on its own. "The true
+              # absence case" quietly includes one case more than it reads: the
+              # datasource having FORGOTTEN a series it once held. See the
+              # CORRECTED 2026-11-08 note on KubexaBackupNotRunning, the only rule
+              # in this group that takes the fallback, and which now gates it.
               - alert: KubexaBackupStale
                 # The threshold comes from the metric, not from this file: the
                 # runner publishes kubexa_backup_max_age_seconds from its own
@@ -1252,25 +1306,126 @@ vmalert:
               # check that distinguishes the two cases this rule confuses when the
               # metric is absent: it returned 0 series, and the inner term read 54s
               # since the last attempt -- a real series, not the vector(0) fallback.
-              # An install that leaves backup.enabled=false must comment it out
-              # again, for the reason above.
+              #
+              # CORRECTED 2026-11-08. That 2026-10-11 reading was right about the
+              # install and wrong about the rule: it proved the series existed THAT
+              # DAY, which is not the question this rule turns on. The question is
+              # what the rule does on a day the series is ABSENT, and the answer was
+              # measured today -- it fired at 04:38 and was still firing 15h33m
+              # later, on a cluster whose backups were doing exactly what they were
+              # configured to do.
+              #
+              # VictoriaMetrics had restarted at 04:39 with an empty storage path.
+              # Three independent readings name that same instant: VM's oldest
+              # sample is 04:40, vm_app_uptime_seconds read 56010s (15.56h) at
+              # 20:12, and the alert's own activeAt was 04:38. The series was simply
+              # gone, `or vector(0)` made the left side of the subtraction 0, and
+              # $value came back as 1794168400 -- 56 years, not a duration anyone
+              # can act on.
+              #
+              # The amplifier is the publish cadence. last_attempt is pushed once a
+              # night at 02:00, so every loss of the datasource's data buys up to 26
+              # HOURS of a firing critical. An absence fallback cannot tell "the job
+              # never ran" from "the store no longer remembers", and a datasource
+              # restart is not a rare event. This is the same defect as
+              # LokiRetentionStalled (fixed 2026-09-27), which fired on every Loki
+              # restart and not only on fresh installs.
+              #
+              # The fix keeps the fallback and GATES it on the datasource having
+              # enough history for an absence to mean anything. vm_app_uptime_seconds
+              # is the series that says how long the store has been recording; this
+              # chart bundles VictoriaMetrics and self-scrapes it, and these rules
+              # already depend on MetricsQL semantics elsewhere. Below the threshold
+              # an absence is uninformative, the fallback contributes no series, and
+              # the rule is silent instead of screaming. Above it, an absent metric
+              # is a real never-ran and still fires.
+              #
+              # `or absent(vm_app_uptime_seconds)` is the part that keeps the gate
+              # from becoming a new silence, and it is not decoration. A gate that
+              # reads a series can lose that series -- a changed scrape config, or
+              # vmalert pointed at a datasource that is not this VictoriaMetrics --
+              # and `min()` over zero series returns no series, so the fallback would
+              # quietly switch off and this rule would stop covering the never-ran
+              # case with nothing reporting that it had. Worse, nothing else would:
+              # KubexaTargetAbsent names four services literally and VictoriaMetrics
+              # is NOT one of them, and its self-scrape carries no namespace or
+              # app_kubernetes_io_name label, so it cannot simply be added to that
+              # list's selector shape.
+              #
+              # With the absent() branch, an install that cannot prove its store is
+              # young behaves exactly as every release before this one did: the
+              # fallback fires. That is no worse than the status quo, the
+              # improvement applies only where it can be justified, and there is no
+              # state in which coverage disappears quietly.
+              #
+              # All four branches measured against the live datasource on
+              # 2026-11-08: absent(existing) -> empty; absent(missing) -> {} = 1;
+              # the whole or-branch with the gate metric missing -> {} = 0, so the
+              # fallback IS active; with uptime present and young (15.5h) -> empty.
+              #
+              # Exercised against the live datasource in four states on 2026-11-08,
+              # the old expression included as the control:
+              #
+              #   old, series absent                     -> FIRES  (today's defect)
+              #   new, absent + uptime 15.5h < 26h       -> silent (defect gone)
+              #   new, absent + gate lowered under 15.5h -> FIRES  (coverage kept)
+              #   new, present and fresh                 -> silent
+              #   new, present + staleness threshold 0   -> FIRES, value 195s
+              #
+              # The last line is the one that matters most: it returns a real
+              # duration, which is what proves the `and` join actually matches and
+              # that $value still humanizes rather than rendering a bare 1.
+              #
+              # Still true, and the reason this is a gate rather than a deletion: an
+              # install that sets backup.enabled=false in the CHART has no CronJob at
+              # all (templates/backup-cronjob.yaml is wholly guarded), so nothing
+              # ever publishes and this rule fires 26h after the datasource comes up.
+              # Such an install must comment it out. That is NOT the same as
+              # switching backups off on the settings screen, which was measured
+              # today to keep publishing -- see the note on the rule itself.
               - alert: KubexaBackupNotRunning
                 # Deliberately NOT gated on enabled: this is the always-present
                 # signal. Turning backups off silences the two rules above; it
                 # must not silence the one that says the job itself stopped
                 # waking up.
                 #
-                # A disabled run still stamps last_attempt (see
-                # internal/backup/metrics.go), so switching backups off on the
-                # settings screen does not make this fire -- only a CronJob that
-                # never wakes does.
+                # A disabled run still stamps last_attempt -- cmd/backup/main.go
+                # calls reportDisabled() on the backup.enabled=false
+                # short-circuit, before buildRunner, precisely so this rule stays
+                # satisfied -- so switching backups off on the settings screen does
+                # not make this fire; only a CronJob that never wakes does.
+                # Measured on apexcrawl 2026-11-08 rather than read off the source:
+                # a one-off run of the live CronJob logged "backup is disabled in
+                # platform settings; nothing to do" and both scopes' last_attempt
+                # appeared in VictoriaMetrics.
+                #
+                # One trap that reading cost an hour: a just-pushed sample is
+                # invisible to an INSTANT query for ~30s, because VM evaluates
+                # instant queries at now - search.latencyOffset (30s by default,
+                # confirmed unset on this install). /api/v1/export has no such
+                # offset and showed the sample immediately. An empty instant query
+                # straight after a push is not evidence that the push failed.
                 #
                 # `or vector(0)` makes a never-seen metric fire rather than
                 # evaluate to nothing -- but only in combination with the
                 # lookbehind: with the default 5m window, a once-a-night sample
-                # falls out and this fires on a healthy install.
+                # falls out and this fires on a healthy install. The uptime gate on
+                # that fallback is the third necessary piece, and the reason it
+                # exists is measured above.
                 expr: |
-                  time() - (max(last_over_time(kubexa_backup_last_attempt_timestamp_seconds[45d])) or vector(0)) > 26 * 3600
+                  time() - (
+                    max(last_over_time(kubexa_backup_last_attempt_timestamp_seconds[45d]))
+                      or
+                    (
+                      vector(0)
+                        and
+                      (
+                        (min(vm_app_uptime_seconds) > 26 * 3600)
+                          or
+                        absent(vm_app_uptime_seconds)
+                      )
+                    )
+                  ) > 26 * 3600
                 for: 15m
                 labels:
                   severity: critical
@@ -1679,7 +1834,7 @@ preflight:
     # not, which is what this value said until chart 0.8.21. Chart 0.8.22 moves
     # this to 0.5.64 with the apiserver pin; 0.5.63 stays the floor below which
     # the binary does not exist at all.
-    tag: "0.5.69"
+    tag: "0.5.70"
   # How long a probe volume may take to bind before the storage check calls it
   # a failure.
   pvcTimeoutSeconds: 60
@@ -1730,7 +1885,7 @@ supportBundle:
     # This value and the apiserver subchart's appVersion must still be bumped in
     # the SAME commit: the render assertion compares them to each other, so it
     # catches them diverging and stays silent when both lag.
-    tag: "0.5.69"
+    tag: "0.5.70"
     pullPolicy: IfNotPresent
   # activeDeadlineSeconds must stay comfortably ABOVE timeout, because this
   # deadline DELETES the pod -- and with it the bundle in its log. 600 against
@@ -1786,7 +1941,7 @@ selftest:
     # This value and the apiserver subchart's appVersion must still be bumped in
     # the SAME commit: the render assertion compares them to each other, so it
     # catches them diverging and stays silent when both lag.
-    tag: "0.5.69"
+    tag: "0.5.70"
     pullPolicy: IfNotPresent
   # The Job's own ceiling. The binary bounds the whole run with its --timeout;
   # this is the backstop if the process itself hangs.
