@@ -1000,7 +1000,42 @@ type: application
 #
 # Sequencing: none between this and the backend charts -- they are vendored
 # here. No migration, no new value, no new permission key.
-version: 0.8.31
+# 0.8.32 corrects a rule 0.8.31 shipped ten minutes earlier, caught by the
+# cluster rather than by review. No image change; backend charts unchanged.
+#
+# KubexaAgentTokenPoolUnseeded had a 15m lookbehind under a `for: 10m`, which
+# is the wrong way round. `increase(...[15m]) > 0` stays true for a full 15
+# minutes after ONE increment, so the `for:` was never reached from the false
+# side -- it was always already satisfied, and the rule fired on a single
+# transient. That is exactly the noise it was written to remove: an agent
+# restart on apexcrawl at 21:16 produced one token_pool_unseeded rejection and
+# the rule went firing at 21:26.
+#
+# Read off the live datasource at 21:27, which is the whole argument in three
+# numbers: `[15m] = 1`, `[2m] = 0`, `[5m] = 0`. The single sample had already
+# left the short windows while still sitting inside the long one.
+#
+# `for:` can only filter a transient when the expression goes FALSE again
+# sooner than `for:` elapses. The lookbehind is now 2m: a single rejection is
+# true for two minutes and the clock resets, while a genuinely unseeded pool
+# keeps it continuously true because the agents retry at
+# gateway.reconnectMaxDelay (15s by default, so 2m is eight retries of margin)
+# and it fires at ten minutes as intended.
+#
+# The verification that missed it is the part worth keeping. A synthetic series
+# was pushed and the rule was confirmed to fire -- which proved the selector
+# and the join, and was also the bug wearing the costume of a passing test,
+# because firing from a single sample WAS the defect. Both directions are now
+# checked against the live datasource: a fresh sample in the window fires (9),
+# the stale 21:16 sample is silent, and the narrowed warning ignores both.
+#
+# Note this invariant is NOT universal, so it is not worth a generic check.
+# KubexaConsumerNotDraining also has a 15m lookbehind under a shorter `for:`
+# and is correct, because its condition is `publishing AND not writing` -- the
+# second term is itself a fifteen-minute sustained state, not a single event.
+# The rule is: a lookbehind longer than `for:` is a defect only when the
+# expression can be made true by one increment.
+version: 0.8.32
 appVersion: "0.1.0"
 keywords:
   - kubexa

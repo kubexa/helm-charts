@@ -828,12 +828,33 @@ vmalert:
               # at all while every other signal looks healthy. The whole fleet
               # going quiet is the most serious state this chart can report.
               #
-              # `for: 10m` is sized from the only measurement there is: the
-              # observed seeding delay on apexcrawl was under 20 seconds
-              # (rejections at 18:08:0x, both agents connected 17s later). Ten
-              # minutes is thirty times that, so a normal restart cannot reach it,
-              # while a reconciler that is simply not running is caught in the same
-              # ten minutes.
+              # THE LOOKBEHIND MUST BE SHORTER THAN `for:`, and this rule shipped
+              # with it the other way round for ten minutes. Measured on apexcrawl
+              # 2026-11-08: `increase(...[15m]) > 0` stays true for a full 15
+              # minutes after ONE increment, so `for: 10m` was never reached from
+              # the false side -- it was always already satisfied. An agent restart
+              # at 21:16 produced exactly one token_pool_unseeded rejection and the
+              # rule went firing at 21:26, which is precisely the noise it was
+              # written to remove. Read off the live datasource at 21:27:
+              # `[15m] = 1`, `[2m] = 0`, `[5m] = 0` -- the single sample had already
+              # fallen out of the shorter windows while still inside the long one.
+              #
+              # `for:` can only filter a transient when the expression goes FALSE
+              # again sooner than `for:` elapses. With a 2m lookbehind a single
+              # rejection is true for two minutes and the clock resets; a pool that
+              # is genuinely unseeded keeps the expression continuously true,
+              # because the agents retry at `gateway.reconnectMaxDelay` (15s by
+              # default, so 2m is eight retries of margin) and fires at ten
+              # minutes. The ten minutes is still sized from the observed seeding
+              # delay -- under 20 seconds on apexcrawl -- but it is the LOOKBEHIND
+              # that makes a restart survivable, not the `for:`.
+              #
+              # The verification that missed this is worth naming: a synthetic
+              # series was pushed and the rule was confirmed to fire. That proved
+              # the selector and the join, and it was also the bug wearing the
+              # costume of a passing test -- firing from a single sample was the
+              # defect. Exercising a rule means checking both that it fires when it
+              # should AND that it stays silent when it should.
               #
               # This needs no absence fallback. The agents retry, so a pool that
               # stays unseeded keeps producing rejections and the series keeps
@@ -843,7 +864,7 @@ vmalert:
               # KubexaBackupNotRunning spent two months carrying.
               - alert: KubexaAgentTokenPoolUnseeded
                 expr: |
-                  sum(increase(kubexa_gateway_handshake_rejected_total{reason="token_pool_unseeded"}[15m])) > 0
+                  sum(increase(kubexa_gateway_handshake_rejected_total{reason="token_pool_unseeded"}[2m])) > 0
                 for: 10m
                 labels:
                   severity: critical
