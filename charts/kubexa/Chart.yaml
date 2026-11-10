@@ -1065,7 +1065,33 @@ type: application
 # cardinality drops, which fleetAgentLost reads with increase().
 #
 # No migration, no new value, no new permission key.
-version: 0.8.33
+# 0.8.34 moves kubexa-app to 0.1.72 (image 0.2.69) and changes nothing else.
+#
+# It is the first release whose defects were found by opening the product in a
+# browser. kubexa-app now carries `scripts/acceptance/live.mjs`: it signs in to
+# a real install as its bootstrap superadmin and walks every screen the router
+# can resolve -- 62 routes, 51 walked, 11 excluded with a written reason -- at
+# 1440 and 390, judging each on eight checks. Nothing before it ever opened a
+# signed-in screen: jsdom has no layout or network, the playground walk drives
+# a faked transport, and the mobile audit measures markup offline.
+#
+# The first round, on apexcrawl, found two:
+#
+#   * `/settings` is routed outside `_authenticated` and renders its own
+#     layout, which inherited none of ShellLayout's `useAppearanceSync`. All
+#     seven settings screens ignored the account's saved language and theme.
+#     i18next caches the corrected language in localStorage, so it was
+#     invisible to anyone who clicked in from the shell and certain for anyone
+#     arriving on a bookmark, a deep link or the post-login redirect.
+#
+#   * Fourteen date formatters called `toLocale*()` with no locale, dating
+#     their rows against the BROWSER rather than the app: /iam printed
+#     "26-9-2026" and /members "9/26/2026" for the same account, both pages in
+#     English. `2-10-2026` is 2 October on one screen and 10 February on the
+#     other.
+#
+# No migration, no new value, no new permission key, no apiserver floor.
+version: 0.8.34
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -2810,6 +2836,16 @@ dependencies:
     #
     # No template and no contract change, so it pairs with any apiserver and
     # moves on its own.
-    version: "0.1.71"
+    #
+    # 0.1.72 (image 0.2.69) is the first release found by OPENING the install:
+    # `scripts/acceptance` in kubexa-app signs in and walks all 51 screens at
+    # two widths. The settings screens are routed outside the shell, so they
+    # had never run `useAppearanceSync` and ignored the account's saved
+    # language and theme -- `<html lang="nl">` on an account whose locale is
+    # `en`; and fourteen `toLocale*()` calls dated their rows against the
+    # browser, so /iam said "26-9-2026" where /members said "9/26/2026" for the
+    # same account in the same session. Also template-free; it pairs with any
+    # apiserver.
+    version: "0.1.72"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
