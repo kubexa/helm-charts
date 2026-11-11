@@ -197,16 +197,33 @@ assert_vmalert_rules() {
   # created by narrowing KubexaHandshakeRejections on 2026-11-08 -- deleting it
   # would leave that exclusion in place and the exclusion alone, which is
   # strictly worse than before the split.
+  # KubexaConsumerPartialReject is pinned because it is the ONLY rule that
+  # reports a loss nothing can attribute. KubexaConsumerDropping excludes
+  # reason="partial_reject" (that reason carries no cluster_id, so the
+  # exclusion is what stops it printing a blank -- or, before 2026-11-11, the
+  # wrong cluster). Delete this rule and the exclusion stays, which means a
+  # permanent rejection of part of a namespace's push is reported by nothing
+  # at all: strictly worse than the mislabelled alert it replaced.
   for rule in KubexaPasswordBreachCheckFailing KubexaSessionGateFailing KubexaSessionGateErroring \
     KubexaAgentExportStalled KubexaAgentSendStalled \
     KubexaConsumerNotDraining LokiRuntimeConfigRejected \
-    KubexaBackupNotRunning KubexaAgentTokenPoolUnseeded; do
+    KubexaBackupNotRunning KubexaAgentTokenPoolUnseeded \
+    KubexaConsumerPartialReject; do
     if grep -qE "^[[:space:]]*- alert: $rule$" <<< "$doc"; then
       ok "$profile: vmalert rule $rule"
     else
       fail "$profile: vmalert rules ConfigMap lacks $rule"
     fi
   done
+
+  # The other half of that pair: the exclusion itself. Without it
+  # KubexaConsumerDropping matches partial_reject again and renders "cluster "
+  # with nothing after it, which is how the mislabel read in the first place.
+  if grep -q 'kubexa_consumer_messages_dropped_total{reason!="partial_reject"}' <<< "$doc"; then
+    ok "$profile: KubexaConsumerDropping still excludes partial_reject"
+  else
+    fail "$profile: KubexaConsumerDropping no longer excludes partial_reject; it will name a cluster it cannot know"
+  fi
 }
 
 # The preflight profile is the only one that renders these. Herestrings, not

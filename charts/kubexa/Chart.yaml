@@ -1091,7 +1091,45 @@ type: application
 #     other.
 #
 # No migration, no new value, no new permission key, no apiserver floor.
-version: 0.8.34
+
+# 0.8.35 moves kubexa-consumer to 0.1.5 (image 0.2.4) and splits one alert
+# rule in two. No migration, no new value, no new permission key, no apiserver
+# floor.
+#
+# Image 0.2.4 stops charging a drop it cannot attribute to a cluster. A
+# permanent rejection classifies a NAMESPACE: Loki answers one 400 for a push
+# carrying every stream the namespace owns and names only the entries it
+# ignored, so the messages the consumer terminates under it include messages
+# Loki stored. Charging each to its own cluster_id made the drop alert accuse
+# a cluster whose data had been written -- measured on apexcrawl 2026-11-11,
+# where one refused e12-stage entry raised "cluster apexcrawl: 1 message
+# abandoned ... cannot be recovered" against a cluster with nothing rejected.
+# Read instead of the data, that alert would have reversed the verdict of that
+# day's agent fix verification.
+#
+# Those drops now carry reason="partial_reject" and an EMPTY cluster_id, so:
+#
+#   * KubexaConsumerDropping EXCLUDES the new reason. Its body prints
+#     "cluster {{ $labels.cluster_id }}", which the new reason can only
+#     render blank.
+#   * KubexaConsumerPartialReject is new and reports the same loss by
+#     tenant_namespace, worded as the upper bound it is -- the destination
+#     refused at least one entry and stored the rest, so an unknown subset of
+#     the count was in fact written.
+#
+# Take the halves together. Image 0.2.4 under umbrella 0.8.34 records the
+# drop and no rule matches it; umbrella 0.8.35 with an older image renders a
+# rule whose series never appears. The second is harmless, the first is a
+# silence.
+#
+# WHAT CHANGES ON A DASHBOARD: per-cluster drop figures read LOWER after this
+# upgrade -- on the cluster detail screen, on the fleet table and in the
+# alert. Nothing improved at the destination. The figure stopped including a
+# loss it could not attribute, and that loss is now only on the new alert:
+# the per-cluster queries pin cluster_id, so they cannot match an empty one
+# by construction. A namespace-level figure on those screens does not exist
+# yet.
+version: 0.8.35
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -2155,7 +2193,26 @@ dependencies:
     # moved. Its Dockerfile had `ARG TARGETARCH=amd64`, and a default SHADOWS
     # BuildKit's value, so adding `platforms:` alone would have published an
     # arm64 child holding an x86-64 binary.
-    version: "0.1.4"
+    #
+    # 0.1.5 carries image 0.2.4, which stops charging an unattributable drop to
+    # a cluster. A permanent rejection classifies a NAMESPACE: Loki answers one
+    # 400 for a push carrying every stream the namespace owns and lists only
+    # the entries it ignored, so the messages terminated under it include
+    # messages it stored. Counting each against its own cluster_id made the
+    # drop alert accuse a cluster whose data had been written -- measured on
+    # apexcrawl 2026-11-11.
+    #
+    # They are now reason="partial_reject" with an EMPTY cluster_id. This
+    # umbrella version is the other half of that change: values.yaml excludes
+    # the new reason from KubexaConsumerDropping (whose body names a cluster)
+    # and adds KubexaConsumerPartialReject, which reports it per namespace as
+    # an upper bound. Take the two together -- image 0.2.4 under umbrella
+    # 0.8.34 counts the drop and nothing alerts on it.
+    #
+    # Per-cluster drop figures read LOWER after this upgrade, on screens and
+    # in the alert. Nothing improved at the destination; the figure stopped
+    # including a loss it could not attribute.
+    version: "0.1.5"
     repository: oci://ghcr.io/kubexa/charts
     condition: consumer.enabled
   - name: kubexa-app

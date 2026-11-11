@@ -1002,9 +1002,15 @@ vmalert:
               # see the group comment above. This counter carries cluster_id;
               # kubexa_consumer_write_errors_total above does not, so inventing
               # one there would be wrong.
+              #
+              # reason="partial_reject" is EXCLUDED here and carried by the
+              # rule below instead. That reason is recorded with an empty
+              # cluster_id on purpose -- see the next rule -- so this one's
+              # "cluster {{ $labels.cluster_id }}" would render a blank, and
+              # before the exclusion it rendered the WRONG cluster.
               - alert: KubexaConsumerDropping
                 expr: |
-                  sum by (destination, reason, tenant_id, cluster_id) (increase(kubexa_consumer_messages_dropped_total[30m])) > 0
+                  sum by (destination, reason, tenant_id, cluster_id) (increase(kubexa_consumer_messages_dropped_total{reason!="partial_reject"}[30m])) > 0
                 for: 0m
                 labels:
                   severity: warning
@@ -1012,6 +1018,34 @@ vmalert:
                 annotations:
                   summary: "Consumer is discarding messages to {{ $labels.destination }} ({{ $labels.reason }})"
                   description: "{{ $value | humanize }} telemetry messages abandoned without being written in the last 30 minutes, cluster {{ $labels.cluster_id }}. They are not retried and cannot be recovered."
+
+              # The same loss, at the only granularity it is known at.
+              #
+              # A permanent rejection classifies a NAMESPACE: Loki answers one
+              # 400 for a push carrying every stream the namespace owns and
+              # lists only the entries it ignored -- the rest were stored. So
+              # the consumer terminates messages it cannot prove were lost,
+              # and kubexa-consumer records them as partial_reject with no
+              # cluster_id rather than charging each to its own cluster.
+              #
+              # Measured on apexcrawl 2026-11-11: one refused e12-stage entry
+              # raised "cluster apexcrawl: 1 message abandoned, cannot be
+              # recovered" against a cluster whose data Loki held -- which,
+              # read instead of the data, would have reversed the verdict of
+              # that day's agent fix. Hence an upper bound stated as one.
+              #
+              # Grouped WITHOUT cluster_id: adding it would print the empty
+              # label this rule exists to avoid claiming.
+              - alert: KubexaConsumerPartialReject
+                expr: |
+                  sum by (destination, tenant_namespace, tenant_id) (increase(kubexa_consumer_messages_dropped_total{reason="partial_reject"}[30m])) > 0
+                for: 0m
+                labels:
+                  severity: warning
+                  component: consumer
+                annotations:
+                  summary: "{{ $labels.destination }} permanently refused part of a namespace's push"
+                  description: "At most {{ $value | humanize }} telemetry messages were abandoned in namespace {{ $labels.tenant_namespace }} in the last 30 minutes. {{ $labels.destination }} refused at least one entry and stored the rest, so an unknown subset of these was in fact written -- this is an upper bound on the loss, and it cannot be attributed to a cluster. Read the consumer log for the stream the destination named."
 
               # No series until the first cooldown, like the handshake rule --
               # name verified against kubexa-consumer/internal/metrics rather
