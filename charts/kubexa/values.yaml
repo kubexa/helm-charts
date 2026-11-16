@@ -745,6 +745,46 @@ vmalert:
                   summary: "Session revocation enforcement is intermittently blind"
                   description: "Session-liveness checks have been erroring for 5 minutes. The gate fails open, so any session revoked in this window keeps working until its access token expires -- up to 15 minutes on the default access_ttl. Check the apiserver's Redis connection."
 
+              # The one alert about the alerting path itself, and the only one
+              # whose subject can never raise it: alert delivery runs
+              # vmalert -> apiserver -> notification -> push, so an apiserver
+              # that dies silences the pipeline that would report it. The dead
+              # man's switch answers that by pinging OUT every minute while the
+              # apiserver can do its job; an external check fires when the
+              # pings stop. This rule does not replace that check -- nothing
+              # in-cluster can -- it watches the switch itself, which until
+              # 2026-11-15 nothing did.
+              #
+              # Gated on `enabled == 1` so it stays silent on an install that
+              # deliberately has no switch (empty URL is a configured state),
+              # and so that "configured but inert" is NOT silent: that is the
+              # state found in production, where the only evidence of a working
+              # switch was a boot log line the pod had rotated away.
+              #
+              # Reads the timestamp rather than the counters because the one
+              # question worth alerting on covers every failure mode at once:
+              # how long since this switch last asserted liveness. A ping
+              # rejected by the check, a DNS failure, a deliberate lapse while
+              # postgres is down, and a URL that was never valid all land here.
+              # The pings_total counter's `result` label is what says WHICH --
+              # read it after this fires, not instead.
+              #
+              # 0 is never a timestamp: a process that has never delivered a
+              # ping leaves the gauge at 0, so `time() - 0` is large and this
+              # fires. That is correct -- an unverified switch is not a switch
+              # -- and the pinger's first tick runs at startup, not after an
+              # interval, so a healthy rollout never approaches the 10m window.
+              - alert: KubexaDeadManNotAsserting
+                expr: |
+                  kubexa_apiserver_deadman_enabled == 1 and (time() - kubexa_apiserver_deadman_last_success_timestamp_seconds) > 600
+                for: 5m
+                labels:
+                  severity: critical
+                  component: apiserver
+                annotations:
+                  summary: "The dead man's switch has not asserted liveness for 10 minutes"
+                  description: "This apiserver is configured to ping an external dead man's switch but has not delivered a ping in over 10 minutes, so nothing outside this cluster would now be told if it died -- and the external check may already be alarming. Read kubexa_apiserver_deadman_pings_total by result to see which: rejected means the check answered non-2xx (wrong or revoked URL), error means the request could not be made (egress or DNS), skipped means a critical dependency is down and the switch is deliberately lapsing, and no increase at all means the pinger is not ticking."
+
           - name: gateway
             rules:
               # The gauge is a state set: three series, exactly one of which is

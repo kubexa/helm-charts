@@ -2,6 +2,24 @@ apiVersion: v2
 name: kubexa
 description: "Kubexa — the whole platform in one release: API server, agentserver, telemetry consumer, the web UI, and the datastores and message bus they need (Postgres, Valkey, VictoriaMetrics, Loki, NATS), each of which can be turned off and pointed at your own."
 type: application
+# 0.8.36 adds one vmalert rule, KubexaDeadManNotAsserting, and changes nothing
+# else -- no image moves, no template but the rules ConfigMap.
+#
+# It watches the only safety net whose own failure nothing could report. Alert
+# delivery runs vmalert -> apiserver -> notification -> push, so an apiserver
+# that dies silences the pipeline that would announce it; the dead man's switch
+# answers that by pinging an external check every minute while the apiserver can
+# do its job. On 2026-11-15 that switch was found configured correctly on a live
+# install with NO way to confirm it from inside: the pinger logs one line per
+# outcome change by design, and on a week-old pod kubelet had rotated that line
+# away, so "armed" and "silently protecting nothing" were one observation.
+#
+# The rule reads two series the apiserver only gained in the image released
+# after this chart (kubexa_apiserver_deadman_enabled and
+# ..._last_success_timestamp_seconds). Installing this chart on an older image
+# is therefore SILENT, not wrong: the `enabled == 1` arm matches nothing and
+# the rule never fires. The reverse order -- a new image under an older chart
+# -- is the one that loses a signal, so this chart may ship first.
 # 0.7.12 moves kubexa-apiserver to 0.4.38 and adds
 # apiserver.config.agent.gatewayHost: the address an operator points a
 # kubexa-agent at, which the apiserver serves to the app so its "connect a
@@ -1129,7 +1147,7 @@ type: application
 # the per-cluster queries pin cluster_id, so they cannot match an empty one
 # by construction. A namespace-level figure on those screens does not exist
 # yet.
-version: 0.8.35
+version: 0.8.36
 appVersion: "0.1.0"
 keywords:
   - kubexa

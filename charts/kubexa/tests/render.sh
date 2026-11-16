@@ -204,11 +204,20 @@ assert_vmalert_rules() {
   # wrong cluster). Delete this rule and the exclusion stays, which means a
   # permanent rejection of part of a namespace's push is reported by nothing
   # at all: strictly worse than the mislabelled alert it replaced.
+  # KubexaDeadManNotAsserting is the limit case of everything above: it watches
+  # the one safety net whose subject cannot raise its own alarm. Alert delivery
+  # runs vmalert -> apiserver -> notification -> push, so an apiserver that dies
+  # silences the pipeline that would report it, and the dead man's switch exists
+  # because of that. Delete this rule and the switch goes back to the state
+  # production was in on 2026-11-15: configured, almost certainly working, and
+  # impossible to confirm from inside the platform -- the pinger logs one line
+  # per outcome change by design, and on a week-old pod kubelet had rotated it
+  # away. Nothing else reads those two series.
   for rule in KubexaPasswordBreachCheckFailing KubexaSessionGateFailing KubexaSessionGateErroring \
     KubexaAgentExportStalled KubexaAgentSendStalled \
     KubexaConsumerNotDraining LokiRuntimeConfigRejected \
     KubexaBackupNotRunning KubexaAgentTokenPoolUnseeded \
-    KubexaConsumerPartialReject; do
+    KubexaConsumerPartialReject KubexaDeadManNotAsserting; do
     if grep -qE "^[[:space:]]*- alert: $rule$" <<< "$doc"; then
       ok "$profile: vmalert rule $rule"
     else
