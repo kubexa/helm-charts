@@ -1147,7 +1147,39 @@ type: application
 # the per-cluster queries pin cluster_id, so they cannot match an empty one
 # by construction. A namespace-level figure on those screens does not exist
 # yet.
-version: 0.8.36
+# 0.8.37 moves kubexa-apiserver to 0.4.81, kubexa-agentserver to 0.2.61 (both
+# on image 0.5.72) and kubexa-app to 0.1.73 (image 0.2.70). It changes no
+# template.
+#
+# It is the release that makes 0.8.36 mean something. That chart installed
+# KubexaDeadManNotAsserting against two series no published image produced, so
+# since 2026-11-16 the rule has been INERT -- its `enabled == 1` arm matched
+# nothing, which is silence and not a false negative. Image 0.5.72 publishes
+# them, pre-created at zero, and the rule starts evaluating on the first pod
+# that runs it. Nothing about the switch itself changed: it has pinged since
+# 2026-08-19 and all three of its edges were mail-confirmed that day.
+#
+# It also finishes the drop-attribution work 0.8.35 began, and reverses that
+# note's last sentence. 0.8.35 removed the unattributable partial_reject drops
+# from every per-cluster figure and said "a namespace-level figure on those
+# screens does not exist yet". It does now, on both ends in one release: the
+# apiserver answers `unattributed_lost_messages` with a per-reason breakdown on
+# the cluster snapshot and on each namespace row of /admin/ingestion, and the
+# app renders it -- labelled an upper bound in both places, because the entries
+# the destination did not list as refused were stored.
+#
+# The app image also carries a feedback fix: four paths announced the same
+# failed mutation twice, and two more would have gone silent if the caller had
+# unmounted mid-request.
+#
+# Three tool image tags move with the apiserver pin in this same commit --
+# preflight, support bundle and selftest -- because tests/render.sh compares
+# each against the apiserver subchart's appVersion and stays silent when both
+# lag together.
+#
+# No migration. Rolling back to 0.8.36 returns the old images and makes the
+# dead-man rule inert again.
+version: 0.8.37
 appVersion: "0.1.0"
 keywords:
   - kubexa
@@ -1864,7 +1896,7 @@ dependencies:
     # starts a container that cannot start. tests/render.sh asserts
     # preflight.image.tag equals the image this pin renders, which is why the
     # two move in one commit.
-    version: "0.4.80"
+    version: "0.4.81"
     repository: oci://ghcr.io/kubexa/charts
     condition: apiserver.enabled
   - name: nats
@@ -2176,7 +2208,7 @@ dependencies:
     # HTTP concern and no agentserver path calls it. DO NOT INSTALL 0.2.51
     # either, for the same reason as apiserver 0.4.70 -- it names the never-built
     # 0.5.61.
-    version: "0.2.60"
+    version: "0.2.61"
     repository: oci://ghcr.io/kubexa/charts
     condition: agentserver.enabled
   - name: kubexa-consumer
@@ -2921,6 +2953,6 @@ dependencies:
     # browser, so /iam said "26-9-2026" where /members said "9/26/2026" for the
     # same account in the same session. Also template-free; it pairs with any
     # apiserver.
-    version: "0.1.72"
+    version: "0.1.73"
     repository: oci://ghcr.io/kubexa/charts
     condition: app.enabled
