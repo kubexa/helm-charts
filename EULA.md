@@ -47,8 +47,12 @@ conflicts with this agreement, that license prevails for that component.
   under its own license. Some of these are copyleft licenses with obligations of
   their own. We do not sublicense them to you, and you are responsible for
   reviewing their terms for your own deployment.
-* **Third-party libraries compiled into the Software.** Their notices are
-  reproduced in the Software's distribution and remain in force.
+* **Third-party libraries compiled into the Software.** Every image carries
+  `/THIRD-PARTY-NOTICES.md`, generated when the image is built from the
+  libraries actually linked into it and reproducing each one's licence in full.
+  Those licences remain in force. The server images carry no shell, so read it
+  from the image with `docker create` and `docker cp` rather than from a
+  running container.
 
 ## 3. What you may do
 
