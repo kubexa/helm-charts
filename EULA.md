@@ -2,19 +2,19 @@
 
 **Version 1.0 — effective 2026-11-19**
 
-> **Unexecuted fields.** Three values in this document are placeholders written
-> in `[BRACKETS]`: the licensor's legal name, its registered address, and the
-> address for notices. Until they are filled in and this text has been reviewed
-> by counsel, this agreement should not be presented to a customer as final.
-> Nothing else in the document depends on them.
+> **Not reviewed by counsel.** This text has not been reviewed by a lawyer.
+> It also states no registered address, because as of the effective date the
+> licensor is a natural person and has none; notices are given by email under
+> section 14. Both are expected to change in a later version, and section 8
+> limits any such version to releases published after it.
 
 This agreement governs your use of the Kubexa server software. Read it before
 you install. By installing, running, or otherwise using the Software you accept
 these terms; if you do not accept them, do not install the Software.
 
-Licensor: **[LICENSOR LEGAL NAME]**, registered at **[LICENSOR REGISTERED
-ADDRESS]** ("we", "us"). You: the individual or legal entity installing or
-running the Software ("you").
+Licensor: **Eyüp Saral**, trading as Kubexa, resident in the Republic of
+Türkiye ("we", "us"). You: the individual or legal entity installing or running
+the Software ("you").
 
 ---
 
@@ -166,9 +166,10 @@ negligence, for fraud, or for fraudulent misrepresentation.
 ## 12. Governing law and venue
 
 This agreement is governed by the laws of the Republic of Türkiye, without
-regard to its conflict-of-laws rules. The courts of **[CITY]**, Türkiye have
-exclusive jurisdiction, except that either party may seek injunctive relief in
-any competent court to protect its intellectual property.
+regard to its conflict-of-laws rules. It makes no venue agreement of its own:
+jurisdiction lies with whatever courts Turkish procedural law designates as
+competent. Either party may seek injunctive relief in any competent court to
+protect its intellectual property.
 
 If you are a consumer rather than a business, mandatory consumer-protection law
 in your country of residence applies to you regardless of this section.
@@ -189,5 +190,5 @@ in your country of residence applies to you regardless of this section.
 ## 14. Notices and contact
 
 Send notices under this agreement, and any licensing question, to
-**[NOTICE EMAIL]**. A licence covering use that section 4 does not permit —
+**legal@kubexa.dev**. A licence covering use that section 4 does not permit —
 including offering Kubexa as a service — is available by agreement; ask.
