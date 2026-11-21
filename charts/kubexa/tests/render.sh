@@ -1323,6 +1323,35 @@ assert_consumer_users_db_present_with_loki() {
   ok "$profile: loki/usersDb pairing"
 }
 
+assert_notes_name_the_licences() {
+  local out=$1 profile=$2
+  [ "$profile" = "default" ] || return 0
+  # Same --dry-run route as assert_notes_report_the_stores above, and for the
+  # same reason: NOTES.txt is not in `helm template` output.
+  #
+  # What this pins is not prose, it is three pointers an operator cannot
+  # derive from anything else in the release. A `helm install` of this chart
+  # delivers four different sets of terms at once -- Apache-2.0 chart source,
+  # proprietary server images, a GPL-3.0 agent, and third-party charts
+  # redistributed inside the very package being installed -- and until
+  # 2026-11-21 the install output said nothing about any of them. The
+  # licensing page tells the operator which is which, EULA.md is the one they
+  # are accepting by running the images, and THIRD-PARTY-CHARTS.md is the file
+  # that makes the redistribution lawful (Apache-2.0 4(a), AGPL-3.0 4) and is
+  # of no use to anyone who does not know it is in the package.
+  local install_out notes
+  install_out=$(helm install kubexa "$CHART" -f "$PROFILES_DIR/$profile.yaml" --dry-run 2>&1) || true
+  notes=$(awk '/^NOTES:$/{flag=1; next} flag' <<< "$install_out")
+  local missing=0
+  for needle in "kubexa.dev/docs/self-hosting/licensing" "EULA.md" "THIRD-PARTY-CHARTS.md"; do
+    grep -qF "$needle" <<< "$notes" && continue
+    fail "$profile: NOTES.txt never mentions $needle"
+    missing=$((missing + 1))
+  done
+  [ "$missing" -eq 0 ] && ok "$profile: NOTES name the licences"
+  return 0
+}
+
 assert_notes_report_the_stores() {
   local out=$1 profile=$2
   [ "$profile" = "default" ] || return 0

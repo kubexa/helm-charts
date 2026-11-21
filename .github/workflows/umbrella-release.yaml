@@ -110,6 +110,18 @@ jobs:
       - name: Run the chart test harness
         run: charts/kubexa/tests/render.sh
 
+      # The other thing this release has to get right, and the one nothing
+      # renders: `helm package` does not leave dependencies as references, it
+      # unpacks each resolved chart INTO the tarball. So the package pushed
+      # below redistributes the loki, nats and VictoriaMetrics charts, plus
+      # the minio, grafana-agent-operator and rollout-operator charts
+      # vendored inside Loki -- none of which carries a licence file of its
+      # own. This step fails the release if THIRD-PARTY-CHARTS.md no longer
+      # matches what `helm dependency update` just resolved, in either
+      # direction. It has to run after that step, which is what it reads.
+      - name: Third-party chart notices are complete
+        run: charts/kubexa/tests/notices.sh
+
       - name: Get chart name and version
         id: chart_version
         run: |
