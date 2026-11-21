@@ -1,6 +1,9 @@
 Scope of this license
 =====================
 
+Copyright (C) 2026 Eyüp Saral. "Kubexa" names the project, not a separate legal
+entity.
+
 The Apache License 2.0, reproduced in full below, applies to the Helm chart
 SOURCE in this repository -- that is, the contents of `charts/`.
 
