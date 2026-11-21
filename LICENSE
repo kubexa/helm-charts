@@ -23,6 +23,13 @@ It does NOT apply to, and grants no rights in, any of the following:
     vendor under its own license, which this repository neither restates nor
     replaces.
 
+  * The third-party Helm charts the published umbrella package CONTAINS.
+    `helm package` unpacks every resolved dependency into the tarball, so
+    `kubexa-<version>.tgz` on `oci://ghcr.io/kubexa/charts` redistributes the
+    loki, nats and VictoriaMetrics charts, and three more vendored inside
+    Loki. Each keeps its own license -- reproduced in full in
+    `charts/kubexa/THIRD-PARTY-CHARTS.md`, which travels in the package.
+
 README.md carries the same map in table form.
 
 

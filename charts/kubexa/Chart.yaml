@@ -1179,7 +1179,35 @@ type: application
 #
 # No migration. Rolling back to 0.8.36 returns the old images and makes the
 # dead-man rule inert again.
-version: 0.8.37
+# 0.8.38 adds THIRD-PARTY-CHARTS.md to the package. No image moves, no object
+# in the render changes, and the only template touched is NOTES.txt.
+#
+# `helm package` does not leave dependencies as references: it unpacks every
+# resolved chart INTO the published tarball. Measured on the published
+# 0.8.37 -- pulled and untarred, not inferred -- that is 471 entries under
+# charts/, among them minio, grafana-agent-operator and rollout-operator,
+# which are vendored inside Loki and ship whether or not a condition keeps
+# their objects out of the render. So every release of this chart has been
+# redistributing ten third-party chart units, and not one of those archives
+# carries a licence file: Apache-2.0 4(a) and AGPL-3.0 4 each require a copy
+# of the licence to travel with the thing, and none did. It is in the package
+# now, each licence reproduced in full, with the one case that needed
+# reasoning written down -- the Loki CHART is Apache-2.0 under grafana/loki's
+# LICENSING.md carve-out for production/, while the Loki SERVER it deploys is
+# AGPL-3.0 and is not redistributed here.
+#
+# tests/notices.sh is the part that keeps it true: it reads the archives
+# `helm dependency update` actually resolved and fails the release if a chart
+# ships without a section or a section names a chart that no longer ships.
+# `helm dependency update` is all it takes to make that file wrong, and it
+# touches no prose.
+#
+# NOTES.txt now also names the four sets of terms one `helm install` delivers
+# at once, and a render assertion pins the three pointers it must carry.
+#
+# No migration. 0.8.37 and 0.8.38 install the same objects, so rolling back
+# only removes the notices.
+version: 0.8.38
 appVersion: "0.1.0"
 keywords:
   - kubexa

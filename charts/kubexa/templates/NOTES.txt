@@ -162,3 +162,25 @@ See the kubexa-apiserver, kubexa-agentserver and kubexa-consumer chart READMEs
 
 The bundled Postgres is a single replica with no backup. Before this install
 holds anything you would miss, read docs/ for the backup procedure.
+
+
+Licensing -- four different sets of terms arrive with this one command, and
+which one applies depends on which part you mean:
+
+  * the chart source you are installing: Apache-2.0;
+  * the kubexa server images it deploys: proprietary. Running them accepts
+    EULA.md in github.com/kubexa/helm-charts, which grants you Kubexa for
+    your own clusters free of charge -- what it does not grant is offering
+    Kubexa to other organisations as a hosted or managed service;
+  * the kubexa-agent you install in each monitored cluster: GPL-3.0;
+  * the loki, nats and VictoriaMetrics charts redistributed INSIDE this
+    package: each vendor's own. Apache-2.0 throughout, except the MinIO chart
+    vendored inside Loki -- off in this release, shipped in the files
+    regardless -- which is AGPL-3.0.
+
+Every one of those third-party licences is reproduced in full in
+THIRD-PARTY-CHARTS.md inside the chart package, and every kubexa image
+carries /THIRD-PARTY-NOTICES.md for the libraries compiled into it. The whole
+map, with the reasoning:
+
+  https://kubexa.dev/docs/self-hosting/licensing/

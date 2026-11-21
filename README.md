@@ -44,6 +44,7 @@ is the whole map in one place.
 | Kubexa agent (source, image and chart) | `github.com/kubexa/kubexa-agent`, `ghcr.io/kubexa/kubexa-agent`, `kubexa-agent-*.tgz` here | GNU GPL v3.0 |
 | Kubexa server images | `ghcr.io/kubexa/kubexa-{backend,app,consumer,backup}` | Proprietary — see [`EULA.md`](EULA.md) |
 | Everything else the chart deploys | PostgreSQL, Valkey, NATS, VictoriaMetrics, Grafana Loki | Each vendor's own license |
+| Third-party charts the package **contains** | inside `kubexa-<ver>.tgz` on `oci://ghcr.io/kubexa/charts` | Apache-2.0, except the MinIO chart vendored inside Loki (AGPL-3.0) — all reproduced in [`charts/kubexa/THIRD-PARTY-CHARTS.md`](charts/kubexa/THIRD-PARTY-CHARTS.md) |
 
 Two consequences worth stating plainly, because they are the questions a
 reviewer asks first:
@@ -61,6 +62,19 @@ than relying on this table — the components and their versions change between
 chart releases, and `charts/kubexa/Chart.yaml` plus
 `charts/kubexa/charts/*.tgz` are the only authoritative record of what a given
 release pulls in.
+
+**Deploying and redistributing are two different things, and the package does
+both.** `helm package` unpacks every resolved dependency into the tarball, so
+the published umbrella does not merely point at those charts — it carries
+them. Their licenses, which require a copy to travel with the thing, are
+reproduced in full in
+[`charts/kubexa/THIRD-PARTY-CHARTS.md`](charts/kubexa/THIRD-PARTY-CHARTS.md),
+inside the package as well as here, and `charts/kubexa/tests/notices.sh`
+fails a release whose dependency set and notices have drifted apart. The image
+licenses are the half that file cannot cover: Helm writes an image reference
+and your cluster pulls it from the vendor's registry, under terms that are
+often not the chart's — the Loki chart is Apache-2.0 while the Loki server is
+AGPL-3.0.
 
 ## Where the rest of the source lives
 
